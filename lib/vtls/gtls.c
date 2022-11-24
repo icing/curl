@@ -102,8 +102,11 @@ static ssize_t gtls_push(void *s, const void *buf, size_t blen)
 
   DEBUGASSERT(data);
   nwritten = Curl_conn_cf_send(cf->next, data, buf, blen, &result);
-  if(CURLE_AGAIN == result)
-    nwritten = EAGAIN;
+  if(nwritten < 0) {
+    gnutls_transport_set_errno(connssl->backend->session,
+                               (CURLE_AGAIN == result)? EAGAIN : EINVAL);
+    nwritten = -1;
+  }
   return nwritten;
 }
 
@@ -117,8 +120,10 @@ static ssize_t gtls_pull(void *s, void *buf, size_t blen)
 
   DEBUGASSERT(data);
   nread = Curl_conn_cf_recv(cf->next, data, buf, blen, &result);
-  if(CURLE_AGAIN == result) {
-    nread = EAGAIN;
+  if(nread < 0) {
+    gnutls_transport_set_errno(connssl->backend->session,
+                               (CURLE_AGAIN == result)? EAGAIN : EINVAL);
+    nread = -1;
   }
   return nread;
 }

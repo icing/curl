@@ -99,7 +99,7 @@ read_cb(void *userdata, uint8_t *buf, uintptr_t len, uintptr_t *out_n)
     if(CURLE_AGAIN == result)
       ret = EAGAIN;
     else
-      ret = SOCKERRNO;
+      ret = EINVAL;
   }
   *out_n = (int)nread;
   return ret;
@@ -118,7 +118,7 @@ write_cb(void *userdata, const uint8_t *buf, uintptr_t len, uintptr_t *out_n)
     if(CURLE_AGAIN == result)
       ret = EAGAIN;
     else
-      ret = SOCKERRNO;
+      ret = EINVAL;
   }
   *out_n = (int)nwritten;
   return ret;
