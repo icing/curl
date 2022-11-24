@@ -144,7 +144,6 @@ struct ssl_backend_data {
   SSLContextRef ssl_ctx;
   bool ssl_direction; /* true if writing, false if reading */
   size_t ssl_write_buffered_length;
-  struct Curl_easy *io_data;
 };
 
 struct st_cipher {
@@ -832,11 +831,12 @@ static OSStatus bio_cf_in_read(SSLConnectionRef connection,
   struct Curl_cfilter *cf = (struct Curl_cfilter *)connection;
   struct ssl_connect_data *connssl = cf->ctx;
   struct ssl_backend_data *backend = connssl->backend;
-  struct Curl_easy *data = backend->io_data;
+  struct Curl_easy *data = connssl->call_data;
   ssize_t nread;
   CURLcode result;
   OSStatus rtn = noErr;
 
+  DEBUGASSERT(data);
   nread = Curl_conn_cf_recv(cf->next, data, buf, *dataLength, &result);
   if(nread < 0) {
     switch(result) {
@@ -862,11 +862,12 @@ static OSStatus bio_cf_out_write(SSLConnectionRef connection,
   struct Curl_cfilter *cf = (struct Curl_cfilter *)connection;
   struct ssl_connect_data *connssl = cf->ctx;
   struct ssl_backend_data *backend = connssl->backend;
-  struct Curl_easy *data = connssl->backend->io_data;
+  struct Curl_easy *data = connssl->call_data;
   ssize_t nwritten;
   CURLcode result;
   OSStatus ortn = noErr;
 
+  DEBUGASSERT(data);
   nwritten = Curl_conn_cf_send(cf->next, data, buf, *dataLength, &result);
   if(nwritten <= 0) {
     if(result == CURLE_AGAIN) {
@@ -2981,8 +2982,6 @@ sectransp_connect_common(struct Curl_cfilter *cf, struct Curl_easy *data,
   curl_socket_t sockfd = cf->conn->sock[cf->sockindex];
   int what;
 
-  connssl->backend->io_data = data;
-
   /* check if the connection has already been established */
   if(ssl_connection_complete == connssl->state) {
     *done = TRUE;
@@ -3115,7 +3114,6 @@ static void sectransp_close(struct Curl_cfilter *cf, struct Curl_easy *data)
   DEBUGASSERT(backend);
 
   if(backend->ssl_ctx) {
-    backend->io_data = data;
     (void)SSLClose(backend->ssl_ctx);
 #if CURL_BUILD_MAC_10_8 || CURL_BUILD_IOS
     if(SSLCreateContext)
@@ -3144,7 +3142,6 @@ static int sectransp_shutdown(struct Curl_cfilter *cf,
   CURLcode result;
 
   DEBUGASSERT(backend);
-  backend->io_data = data;
 
   if(!backend->ssl_ctx)
     return 0;
@@ -3308,7 +3305,6 @@ static ssize_t sectransp_send(struct Curl_cfilter *cf,
   OSStatus err;
 
   DEBUGASSERT(backend);
-  backend->io_data = data;
 
   /* The SSLWrite() function works a little differently than expected. The
      fourth argument (processed) is currently documented in Apple's
@@ -3378,7 +3374,6 @@ static ssize_t sectransp_recv(struct Curl_cfilter *cf,
   OSStatus err;
 
   DEBUGASSERT(backend);
-  backend->io_data = data;
 
   again:
   err = SSLRead(backend->ssl_ctx, buf, buffersize, &processed);

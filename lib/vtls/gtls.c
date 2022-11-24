@@ -90,14 +90,13 @@ struct ssl_backend_data {
 #ifdef USE_GNUTLS_SRP
   gnutls_srp_client_credentials_t srp_client_cred;
 #endif
-  struct Curl_easy *io_data;
 };
 
 static ssize_t gtls_push(void *s, const void *buf, size_t blen)
 {
   struct Curl_cfilter *cf = s;
   struct ssl_connect_data *connssl = cf->ctx;
-  struct Curl_easy *data = connssl->backend->io_data;
+  struct Curl_easy *data = connssl->call_data;
   ssize_t nwritten;
   CURLcode result;
 
@@ -112,7 +111,7 @@ static ssize_t gtls_pull(void *s, void *buf, size_t blen)
 {
   struct Curl_cfilter *cf = s;
   struct ssl_connect_data *connssl = cf->ctx;
-  struct Curl_easy *data = connssl->backend->io_data;
+  struct Curl_easy *data = connssl->call_data;
   ssize_t nread;
   CURLcode result;
 
@@ -1353,7 +1352,6 @@ gtls_connect_common(struct Curl_cfilter *cf,
   int rc;
   CURLcode result = CURLE_OK;
 
-  connssl->backend->io_data = data;
   /* Initiate the connection, if not already done */
   if(ssl_connect_1 == connssl->connecting_state) {
     rc = gtls_connect_step1(cf, data);
@@ -1385,7 +1383,6 @@ gtls_connect_common(struct Curl_cfilter *cf,
 
 out:
   *done = ssl_connect_1 == connssl->connecting_state;
-  connssl->backend->io_data = NULL;
 
   return result;
 }
@@ -1437,7 +1434,6 @@ static ssize_t gtls_send(struct Curl_cfilter *cf,
 
   (void)data;
   DEBUGASSERT(backend);
-  backend->io_data = data;
   rc = gnutls_record_send(backend->session, mem, len);
 
   if(rc < 0) {
@@ -1448,7 +1444,6 @@ static ssize_t gtls_send(struct Curl_cfilter *cf,
     rc = -1;
   }
 
-  backend->io_data = NULL;
   return rc;
 }
 
@@ -1460,7 +1455,6 @@ static void gtls_close(struct Curl_cfilter *cf,
 
   (void) data;
   DEBUGASSERT(backend);
-  backend->io_data = data;
 
   if(backend->session) {
     char buf[32];
@@ -1481,7 +1475,6 @@ static void gtls_close(struct Curl_cfilter *cf,
     backend->srp_client_cred = NULL;
   }
 #endif
-  backend->io_data = NULL;
 }
 
 /*
@@ -1497,7 +1490,6 @@ static int gtls_shutdown(struct Curl_cfilter *cf,
   int retval = 0;
 
   DEBUGASSERT(backend);
-  backend->io_data = data;
 
 #ifndef CURL_DISABLE_FTP
   /* This has only been tested on the proftpd server, and the mod_tls code
@@ -1562,7 +1554,6 @@ static int gtls_shutdown(struct Curl_cfilter *cf,
 
   backend->cred = NULL;
   backend->session = NULL;
-  backend->io_data = NULL;
 
   return retval;
 }
@@ -1579,7 +1570,6 @@ static ssize_t gtls_recv(struct Curl_cfilter *cf,
 
   (void)data;
   DEBUGASSERT(backend);
-  backend->io_data = data;
 
   ret = gnutls_record_recv(backend->session, buf, buffersize);
   if((ret == GNUTLS_E_AGAIN) || (ret == GNUTLS_E_INTERRUPTED)) {
@@ -1611,7 +1601,6 @@ static ssize_t gtls_recv(struct Curl_cfilter *cf,
   }
 
 out:
-  backend->io_data = NULL;
   return ret;
 }
 

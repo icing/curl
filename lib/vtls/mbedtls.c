@@ -95,7 +95,6 @@ struct ssl_backend_data {
 #ifdef HAS_ALPN
   const char *protocols[3];
 #endif
-  struct Curl_easy *io_data;
 };
 
 /* apply threading? */
@@ -161,10 +160,11 @@ static int bio_cf_write(void *bio, const unsigned char *buf, size_t blen)
 {
   struct Curl_cfilter *cf = bio;
   struct ssl_connect_data *connssl = cf->ctx;
-  struct Curl_easy *data = connssl->backend->io_data;
+  struct Curl_easy *data = connssl->call_data;
   ssize_t nwritten;
   CURLcode result;
 
+  DEBUGASSERT(data);
   nwritten = Curl_conn_cf_send(cf->next, data, (char *)buf, blen, &result);
   /* DEBUGF(infof(data, CFMSG(cf, "bio_cf_out_write(len=%d) -> %d, err=%d"),
          blen, (int)nwritten, result)); */
@@ -178,10 +178,11 @@ static int bio_cf_read(void *bio, unsigned char *buf, size_t blen)
 {
   struct Curl_cfilter *cf = bio;
   struct ssl_connect_data *connssl = cf->ctx;
-  struct Curl_easy *data = connssl->backend->io_data;
+  struct Curl_easy *data = connssl->call_data;
   ssize_t nread;
   CURLcode result;
 
+  DEBUGASSERT(data);
   /* OpenSSL catches this case, so should we. */
   if(!buf)
     return 0;
@@ -939,7 +940,6 @@ static ssize_t mbed_send(struct Curl_cfilter *cf, struct Curl_easy *data,
 
   (void)data;
   DEBUGASSERT(backend);
-  backend->io_data = data;
   ret = mbedtls_ssl_write(&backend->ssl, (unsigned char *)mem, len);
 
   if(ret < 0) {
@@ -966,9 +966,7 @@ static void mbedtls_close(struct Curl_cfilter *cf, struct Curl_easy *data)
 
   /* Maybe the server has already sent a close notify alert.
      Read it to avoid an RST on the TCP connection. */
-  backend->io_data = data;
   (void)mbedtls_ssl_read(&backend->ssl, (unsigned char *)buf, sizeof(buf));
-  backend->io_data = NULL;
 
   mbedtls_pk_free(&backend->pk);
   mbedtls_x509_crt_free(&backend->clicert);
@@ -996,7 +994,6 @@ static ssize_t mbed_recv(struct Curl_cfilter *cf, struct Curl_easy *data,
   (void)data;
   DEBUGASSERT(backend);
 
-  backend->io_data = data;
   ret = mbedtls_ssl_read(&backend->ssl, (unsigned char *)buf,
                          buffersize);
 
@@ -1086,8 +1083,6 @@ mbed_connect_common(struct Curl_cfilter *cf, struct Curl_easy *data,
   curl_socket_t sockfd = cf->conn->sock[cf->sockindex];
   timediff_t timeout_ms;
   int what;
-
-  connssl->backend->io_data = data;
 
   /* check if the connection has already been established */
   if(ssl_connection_complete == connssl->state) {

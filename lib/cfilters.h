@@ -242,6 +242,13 @@ bool Curl_conn_is_connected(struct connectdata *conn, int sockindex);
 bool Curl_conn_is_ip_connected(struct Curl_easy *data, int sockindex);
 
 /**
+ * Determine if the connection is using SSL to the remote host
+ * (or will be once connected). This will return FALSE, if SSL
+ * is only used in proxying and not for the tunnel itself.
+ */
+bool Curl_conn_is_ssl(struct Curl_easy *data, int sockindex);
+
+/**
  * Close the filter chain at `sockindex` for connection `data->conn`.
   * Filters remain in place and may be connected again afterwards.
  */

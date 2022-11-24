@@ -94,9 +94,6 @@
 struct ssl_backend_data {
   SSL_CTX* ctx;
   SSL*     handle;
-#ifdef USE_BIO_CHAIN
-  struct Curl_easy *io_data;
-#endif
 };
 
 #ifdef OPENSSL_EXTRA
@@ -249,11 +246,6 @@ static const struct group_name_map gnm[] = {
 #endif
 
 #ifdef USE_BIO_CHAIN
-static void set_io_data(struct Curl_cfilter *cf, struct Curl_easy *data)
-{
-  struct ssl_connect_data *connssl = cf->ctx;
-  connssl->backend->io_data = data;
-}
 
 static int bio_cf_create(WOLFSSL_BIO *bio)
 {
@@ -308,10 +300,11 @@ static int bio_cf_out_write(WOLFSSL_BIO *bio, const char *buf, int blen)
 {
   struct Curl_cfilter *cf = wolfSSL_BIO_get_data(bio);
   struct ssl_connect_data *connssl = cf->ctx;
-  struct Curl_easy *data = connssl->backend->io_data;
+  struct Curl_easy *data = connssl->call_data;
   ssize_t nwritten;
   CURLcode result;
 
+  DEBUGASSERT(data);
   nwritten = Curl_conn_cf_send(cf->next, data, buf, blen, &result);
   /* DEBUGF(infof(data, CFMSG(cf, "bio_cf_out_write(len=%d) -> %d, err=%d"),
          blen, (int)nwritten, result)); */
@@ -322,10 +315,11 @@ static int bio_cf_in_read(WOLFSSL_BIO *bio, char *buf, int blen)
 {
   struct Curl_cfilter *cf = wolfSSL_BIO_get_data(bio);
   struct ssl_connect_data *connssl = cf->ctx;
-  struct Curl_easy *data = connssl->backend->io_data;
+  struct Curl_easy *data = connssl->call_data;
   ssize_t nread;
   CURLcode result;
 
+  DEBUGASSERT(data);
   /* OpenSSL catches this case, so should we. */
   if(!buf)
     return 0;
@@ -360,7 +354,6 @@ static void bio_cf_free_methods(void)
 
 #else /* USE_BIO_CHAIN */
 
-#define set_io_data(a,b) Curl_nop_stmt
 #define bio_cf_init_methods() Curl_nop_stmt
 #define bio_cf_free_methods() Curl_nop_stmt
 
@@ -1003,7 +996,6 @@ static ssize_t wolfssl_send(struct Curl_cfilter *cf,
   DEBUGASSERT(backend);
 
   ERR_clear_error();
-  set_io_data(cf, data);
 
   rc = SSL_write(backend->handle, mem, memlen);
 
@@ -1040,7 +1032,6 @@ static void wolfssl_close(struct Curl_cfilter *cf, struct Curl_easy *data)
     char buf[32];
     /* Maybe the server has already sent a close notify alert.
        Read it to avoid an RST on the TCP connection. */
-    set_io_data(cf, data);
     (void)SSL_read(backend->handle, buf, (int)sizeof(buf));
     (void)SSL_shutdown(backend->handle);
     SSL_free(backend->handle);
@@ -1067,7 +1058,6 @@ static ssize_t wolfssl_recv(struct Curl_cfilter *cf,
   DEBUGASSERT(backend);
 
   ERR_clear_error();
-  set_io_data(cf, data);
 
   nread = SSL_read(backend->handle, buf, buffsize);
 
@@ -1163,7 +1153,6 @@ static int wolfssl_shutdown(struct Curl_cfilter *cf,
   DEBUGASSERT(ctx && ctx->backend);
 
   if(ctx->backend->handle) {
-    set_io_data(cf, data);
     ERR_clear_error();
     SSL_free(ctx->backend->handle);
     ctx->backend->handle = NULL;
@@ -1188,8 +1177,6 @@ wolfssl_connect_common(struct Curl_cfilter *cf,
     *done = TRUE;
     return CURLE_OK;
   }
-
-  set_io_data(cf, data);
 
   if(ssl_connect_1 == connssl->connecting_state) {
     /* Find out how much more time we're allowed */

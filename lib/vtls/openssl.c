@@ -287,7 +287,6 @@ struct ssl_backend_data {
   /* Set to true once a valid keylog entry has been created to avoid dupes. */
   bool     keylog_done;
 #endif
-  struct Curl_easy *io_data; /* data used in IO operations */
 };
 
 #if defined(HAVE_SSL_X509_STORE_SHARE)
@@ -702,7 +701,7 @@ static int bio_cf_out_write(BIO *bio, const char *buf, int blen)
 {
   struct Curl_cfilter *cf = BIO_get_data(bio);
   struct ssl_connect_data *connssl = cf->ctx;
-  struct Curl_easy *data = connssl->backend->io_data;
+  struct Curl_easy *data = connssl->call_data;
   ssize_t nwritten;
   CURLcode result;
 
@@ -721,7 +720,7 @@ static int bio_cf_in_read(BIO *bio, char *buf, int blen)
 {
   struct Curl_cfilter *cf = BIO_get_data(bio);
   struct ssl_connect_data *connssl = cf->ctx;
-  struct Curl_easy *data = connssl->backend->io_data;
+  struct Curl_easy *data = connssl->call_data;
   ssize_t nread;
   CURLcode result;
 
@@ -1953,7 +1952,6 @@ static void ossl_close(struct Curl_cfilter *cf, struct Curl_easy *data)
   struct ssl_backend_data *backend = connssl->backend;
 
   DEBUGASSERT(backend);
-  backend->io_data = data;
 
   if(backend->handle) {
     set_logger(connssl, data);
@@ -1975,7 +1973,6 @@ static void ossl_close(struct Curl_cfilter *cf, struct Curl_easy *data)
     SSL_CTX_free(backend->ctx);
     backend->ctx = NULL;
   }
-  backend->io_data = NULL;
 }
 
 /*
@@ -1999,7 +1996,6 @@ static int ossl_shutdown(struct Curl_cfilter *cf,
 
   DEBUGASSERT(backend);
 
-  backend->io_data = data;
 #ifndef CURL_DISABLE_FTP
   /* This has only been tested on the proftpd server, and the mod_tls code
      sends a close notify alert without waiting for a close notify alert in
@@ -2084,7 +2080,6 @@ static int ossl_shutdown(struct Curl_cfilter *cf,
     SSL_free(backend->handle);
     backend->handle = NULL;
   }
-  backend->io_data = NULL;
   return retval;
 }
 
@@ -4357,10 +4352,6 @@ static CURLcode ossl_connect_common(struct Curl_cfilter *cf,
     return CURLE_OK;
   }
 
-  /* For IO operations, we need to provide the BIO with the data
-   * and a place to return our "real" result code. */
-  connssl->backend->io_data = data;
-
   if(ssl_connect_1 == connssl->connecting_state) {
     /* Find out how much more time we're allowed */
     const timediff_t timeout_ms = Curl_timeleft(data, NULL, TRUE);
@@ -4453,7 +4444,6 @@ static CURLcode ossl_connect_common(struct Curl_cfilter *cf,
   connssl->connecting_state = ssl_connect_1;
 
 out:
-  connssl->backend->io_data = NULL;
   return result;
 }
 
@@ -4512,7 +4502,6 @@ static ssize_t ossl_send(struct Curl_cfilter *cf,
   (void)data;
   DEBUGASSERT(backend);
 
-  backend->io_data = data;
   ERR_clear_error();
 
   memlen = (len > (size_t)INT_MAX) ? INT_MAX : (int)len;
@@ -4584,7 +4573,6 @@ static ssize_t ossl_send(struct Curl_cfilter *cf,
   *curlcode = CURLE_OK;
 
 out:
-  backend->io_data = NULL;
   return (ssize_t)rc; /* number of bytes */
 }
 
@@ -4605,7 +4593,6 @@ static ssize_t ossl_recv(struct Curl_cfilter *cf,
   (void)data;
   DEBUGASSERT(backend);
 
-  backend->io_data = data;
   ERR_clear_error();
 
   buffsize = (buffersize > (size_t)INT_MAX) ? INT_MAX : (int)buffersize;
@@ -4684,7 +4671,6 @@ static ssize_t ossl_recv(struct Curl_cfilter *cf,
   }
 
 out:
-  backend->io_data = NULL;
   return nread;
 }
 

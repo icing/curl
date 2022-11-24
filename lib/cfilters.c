@@ -391,6 +391,21 @@ bool Curl_conn_is_ip_connected(struct Curl_easy *data, int sockindex)
   return FALSE;
 }
 
+bool Curl_conn_is_ssl(struct Curl_easy *data, int sockindex)
+{
+  struct Curl_cfilter *cf = data->conn? data->conn->cfilter[sockindex] : NULL;
+
+  (void)data;
+  for(; cf; cf = cf->next) {
+    if(cf->cft->flags & CF_TYPE_SSL)
+      return TRUE;
+    if(cf->cft->flags & CF_TYPE_IP_CONNECT)
+      return FALSE;
+  }
+  return FALSE;
+}
+
+
 bool Curl_conn_data_pending(struct Curl_easy *data, int sockindex)
 {
   struct Curl_cfilter *cf;
