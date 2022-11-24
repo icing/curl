@@ -1548,8 +1548,6 @@ static ssize_t ssl_cf_send(struct Curl_cfilter *cf,
 
   *err = CURLE_OK;
   nwritten = Curl_ssl->send_plain(cf, data, buf, len, err);
-  DEBUGF(infof(data, CFMSG(cf, "send(len=%ld) -> %ld, code=%d"),
-               len, nwritten, *err));
   return nwritten;
 }
 
@@ -1561,8 +1559,6 @@ static ssize_t ssl_cf_recv(struct Curl_cfilter *cf,
 
   *err = CURLE_OK;
   nread = Curl_ssl->recv_plain(cf, data, buf, len, err);
-  DEBUGF(infof(data, CFMSG(cf, "recv -> %ld, code=%d"),
-               nread, *err));
   return nread;
 }
 

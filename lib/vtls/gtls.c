@@ -90,30 +90,38 @@ struct ssl_backend_data {
 #ifdef USE_GNUTLS_SRP
   gnutls_srp_client_credentials_t srp_client_cred;
 #endif
+  struct Curl_easy *io_data;
 };
 
-static ssize_t gtls_push(void *s, const void *buf, size_t len)
+static ssize_t gtls_push(void *s, const void *buf, size_t blen)
 {
-  curl_socket_t sock = *(curl_socket_t *)s;
-  ssize_t ret = swrite(sock, buf, len);
-  return ret;
+  struct Curl_cfilter *cf = s;
+  struct ssl_connect_data *connssl = cf->ctx;
+  struct Curl_easy *data = connssl->backend->io_data;
+  ssize_t nwritten;
+  CURLcode result;
+
+  DEBUGASSERT(data);
+  nwritten = Curl_conn_cf_send(cf->next, data, buf, blen, &result);
+  if(CURLE_AGAIN == result)
+    nwritten = EAGAIN;
+  return nwritten;
 }
 
-static ssize_t gtls_pull(void *s, void *buf, size_t len)
+static ssize_t gtls_pull(void *s, void *buf, size_t blen)
 {
-  curl_socket_t sock = *(curl_socket_t *)s;
-  ssize_t ret = sread(sock, buf, len);
-  return ret;
-}
+  struct Curl_cfilter *cf = s;
+  struct ssl_connect_data *connssl = cf->ctx;
+  struct Curl_easy *data = connssl->backend->io_data;
+  ssize_t nread;
+  CURLcode result;
 
-static ssize_t gtls_push_ssl(void *s, const void *buf, size_t len)
-{
-  return gnutls_record_send((gnutls_session_t) s, buf, len);
-}
-
-static ssize_t gtls_pull_ssl(void *s, void *buf, size_t len)
-{
-  return gnutls_record_recv((gnutls_session_t) s, buf, len);
+  DEBUGASSERT(data);
+  nread = Curl_conn_cf_recv(cf->next, data, buf, blen, &result);
+  if(CURLE_AGAIN == result) {
+    nread = EAGAIN;
+  }
+  return nread;
 }
 
 /* gtls_init()
@@ -419,9 +427,6 @@ gtls_connect_step1(struct Curl_cfilter *cf, struct Curl_easy *data)
   const char *hostname = connssl->hostname;
   long * const certverifyresult = &ssl_config->certverifyresult;
   const char *tls13support;
-  struct Curl_cfilter *cf_ssl_next = Curl_ssl_cf_get_ssl(cf->next);
-  struct ssl_connect_data *connssl_next = cf_ssl_next?
-                                            cf_ssl_next->ctx : NULL;
   CURLcode result;
 
   DEBUGASSERT(backend);
@@ -720,18 +725,10 @@ gtls_connect_step1(struct Curl_cfilter *cf, struct Curl_easy *data)
     }
   }
 
-  if(connssl_next) {
-    DEBUGASSERT(connssl_next->backend);
-    transport_ptr = connssl_next->backend;
-    gnutls_transport_push = gtls_push_ssl;
-    gnutls_transport_pull = gtls_pull_ssl;
-  }
-  else {
-    /* file descriptor for the socket */
-    transport_ptr = &cf->conn->sock[cf->sockindex];
-    gnutls_transport_push = gtls_push;
-    gnutls_transport_pull = gtls_pull;
-  }
+  /* push/pull through filter chain */
+  transport_ptr = cf;
+  gnutls_transport_push = gtls_push;
+  gnutls_transport_pull = gtls_pull;
 
   /* set the connection handle */
   gnutls_transport_set_ptr(session, transport_ptr);
@@ -1352,20 +1349,26 @@ gtls_connect_common(struct Curl_cfilter *cf,
                     bool nonblocking,
                     bool *done)
 {
-  int rc;
   struct ssl_connect_data *connssl = cf->ctx;
+  int rc;
+  CURLcode result = CURLE_OK;
 
+  connssl->backend->io_data = data;
   /* Initiate the connection, if not already done */
   if(ssl_connect_1 == connssl->connecting_state) {
     rc = gtls_connect_step1(cf, data);
-    if(rc)
-      return rc;
+    if(rc) {
+      result = rc;
+      goto out;
+    }
   }
 
   rc = handshake(cf, data, TRUE, nonblocking);
-  if(rc)
+  if(rc) {
     /* handshake() sets its own error message with failf() */
-    return rc;
+    result = rc;
+    goto out;
+  }
 
   /* Finish connecting once the handshake is done */
   if(ssl_connect_1 == connssl->connecting_state) {
@@ -1374,13 +1377,17 @@ gtls_connect_common(struct Curl_cfilter *cf,
     DEBUGASSERT(backend);
     session = backend->session;
     rc = Curl_gtls_verifyserver(cf, data, session);
-    if(rc)
-      return rc;
+    if(rc) {
+      result = rc;
+      goto out;
+    }
   }
 
+out:
   *done = ssl_connect_1 == connssl->connecting_state;
+  connssl->backend->io_data = NULL;
 
-  return CURLE_OK;
+  return result;
 }
 
 static CURLcode gtls_connect_nonblocking(struct Curl_cfilter *cf,
@@ -1430,6 +1437,7 @@ static ssize_t gtls_send(struct Curl_cfilter *cf,
 
   (void)data;
   DEBUGASSERT(backend);
+  backend->io_data = data;
   rc = gnutls_record_send(backend->session, mem, len);
 
   if(rc < 0) {
@@ -1440,6 +1448,7 @@ static ssize_t gtls_send(struct Curl_cfilter *cf,
     rc = -1;
   }
 
+  backend->io_data = NULL;
   return rc;
 }
 
@@ -1451,6 +1460,7 @@ static void gtls_close(struct Curl_cfilter *cf,
 
   (void) data;
   DEBUGASSERT(backend);
+  backend->io_data = data;
 
   if(backend->session) {
     char buf[32];
@@ -1471,6 +1481,7 @@ static void gtls_close(struct Curl_cfilter *cf,
     backend->srp_client_cred = NULL;
   }
 #endif
+  backend->io_data = NULL;
 }
 
 /*
@@ -1486,6 +1497,7 @@ static int gtls_shutdown(struct Curl_cfilter *cf,
   int retval = 0;
 
   DEBUGASSERT(backend);
+  backend->io_data = data;
 
 #ifndef CURL_DISABLE_FTP
   /* This has only been tested on the proftpd server, and the mod_tls code
@@ -1550,6 +1562,7 @@ static int gtls_shutdown(struct Curl_cfilter *cf,
 
   backend->cred = NULL;
   backend->session = NULL;
+  backend->io_data = NULL;
 
   return retval;
 }
@@ -1566,11 +1579,13 @@ static ssize_t gtls_recv(struct Curl_cfilter *cf,
 
   (void)data;
   DEBUGASSERT(backend);
+  backend->io_data = data;
 
   ret = gnutls_record_recv(backend->session, buf, buffersize);
   if((ret == GNUTLS_E_AGAIN) || (ret == GNUTLS_E_INTERRUPTED)) {
     *curlcode = CURLE_AGAIN;
-    return -1;
+    ret = -1;
+    goto out;
   }
 
   if(ret == GNUTLS_E_REHANDSHAKE) {
@@ -1582,7 +1597,8 @@ static ssize_t gtls_recv(struct Curl_cfilter *cf,
       *curlcode = result;
     else
       *curlcode = CURLE_AGAIN; /* then return as if this was a wouldblock */
-    return -1;
+    ret = -1;
+    goto out;
   }
 
   if(ret < 0) {
@@ -1590,9 +1606,12 @@ static ssize_t gtls_recv(struct Curl_cfilter *cf,
 
           (int)ret, gnutls_strerror((int)ret));
     *curlcode = CURLE_RECV_ERROR;
-    return -1;
+    ret = -1;
+    goto out;
   }
 
+out:
+  backend->io_data = NULL;
   return ret;
 }
 

@@ -1690,8 +1690,6 @@ static CURLcode socket_cf_connect(struct Curl_cfilter *cf,
       result = Curl_connecthost(data, conn, ctx->remotehost);
       if(!result)
         ctx->state = SCFST_WAITING;
-      DEBUGF(infof(data, CFMSG(cf, "connect(INIT) -> %d, done=%d"),
-             result, *done));
       break;
     case SCFST_WAITING:
       result = is_connected(data, conn, sockindex, done);
@@ -1704,13 +1702,9 @@ static CURLcode socket_cf_connect(struct Curl_cfilter *cf,
         ctx->state = SCFST_DONE;
         cf->connected = TRUE;
       }
-      DEBUGF(infof(data, CFMSG(cf, "connect(WAIT) -> %d, done=%d"),
-             result, *done));
       break;
     case SCFST_DONE:
       *done = TRUE;
-      DEBUGF(infof(data, CFMSG(cf, "connect(DONE) -> %d, done=%d"),
-             result, *done));
       break;
   }
   return result;
@@ -1731,8 +1725,6 @@ static CURLcode socket_cf_setup(struct Curl_cfilter *cf,
     ctx->remotehost = remotehost;
   }
   /* we start connecting right on setup */
-  DEBUGF(infof(data, CFMSG(cf, "setup(remotehost=%s)"),
-         cf->conn->hostname_resolve));
   return socket_cf_connect(cf, data, FALSE, &done);
 }
 
@@ -1784,8 +1776,6 @@ static ssize_t socket_cf_send(struct Curl_cfilter *cf, struct Curl_easy *data,
 {
   ssize_t nwritten;
   nwritten = Curl_send_plain(data, cf->sockindex, buf, len, err);
-  DEBUGF(infof(data, CFMSG(cf, "send(len=%ld) -> %ld, err=%d"),
-         len, nwritten, *err));
   return nwritten;
 }
 
@@ -1794,7 +1784,6 @@ static ssize_t socket_cf_recv(struct Curl_cfilter *cf, struct Curl_easy *data,
 {
   ssize_t nread;
   nread = Curl_recv_plain(data, cf->sockindex, buf, len, err);
-  DEBUGF(infof(data, CFMSG(cf, "recv() -> %ld"), nread));
   return nread;
 }
 
@@ -1803,7 +1792,6 @@ static void socket_cf_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
   struct socket_cf_ctx *state = cf->ctx;
 
   (void)data;
-  DEBUGF(infof(data, CFMSG(cf, "destroy()")));
   if(cf->connected) {
     socket_cf_close(cf, data);
   }
