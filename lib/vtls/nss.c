@@ -2167,34 +2167,17 @@ static CURLcode nss_setup_connect(struct Curl_cfilter *cf,
 #endif
 
 #if defined(SSL_ENABLE_ALPN)
-  if(cf->conn->bits.tls_enable_alpn) {
-    int cur = 0;
-    unsigned char protocols[128];
+  if(connssl->alpn) {
+    struct alpn_proto_buf proto;
 
-    if(data->state.httpwant == CURL_HTTP_VERSION_1_0) {
-      protocols[cur++] = ALPN_HTTP_1_0_LENGTH;
-      memcpy(&protocols[cur], ALPN_HTTP_1_0, ALPN_HTTP_1_0_LENGTH);
-      cur += ALPN_HTTP_1_0_LENGTH;
-    }
-    else {
-#ifdef USE_HTTP2
-      if(data->state.httpwant >= CURL_HTTP_VERSION_2
-#ifndef CURL_DISABLE_PROXY
-         && (!Curl_ssl_cf_is_proxy(cf) || !cf->conn->bits.tunnel_proxy)
-#endif
-        ) {
-        protocols[cur++] = ALPN_H2_LENGTH;
-        memcpy(&protocols[cur], ALPN_H2, ALPN_H2_LENGTH);
-        cur += ALPN_H2_LENGTH;
-      }
-#endif
-      protocols[cur++] = ALPN_HTTP_1_1_LENGTH;
-      memcpy(&protocols[cur], ALPN_HTTP_1_1, ALPN_HTTP_1_1_LENGTH);
-      cur += ALPN_HTTP_1_1_LENGTH;
-    }
-
-    if(SSL_SetNextProtoNego(backend->handle, protocols, cur) != SECSuccess)
+    result = Curl_alpn_to_proto_buf(&proto, connssl->alpn);
+    if(result || SSL_SetNextProtoNego(backend->handle, proto.data, proto.len)
+                   != SECSuccess) {
+      failf(data, "Error setting ALPN");
       goto error;
+    }
+    Curl_alpn_to_proto_str(&proto, connssl->alpn);
+    infof(data, VTLS_INFOF_ALPN_OFFER_1STR, proto.data);
   }
 #endif
 
