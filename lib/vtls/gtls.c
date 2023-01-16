@@ -698,37 +698,22 @@ gtls_connect_step1(struct Curl_cfilter *cf, struct Curl_easy *data)
   if(result)
     return result;
 
-  if(cf->conn->bits.tls_enable_alpn) {
-    int cur = 0;
-    gnutls_datum_t protocols[2];
+  if(connssl->alpn) {
+    struct alpn_proto_buf proto;
+    gnutls_datum_t alpn[ALPN_ENTRIES_MAX];
+    size_t i;
 
-    if(data->state.httpwant == CURL_HTTP_VERSION_1_0) {
-      protocols[cur].data = (unsigned char *)ALPN_HTTP_1_0;
-      protocols[cur++].size = ALPN_HTTP_1_0_LENGTH;
-      infof(data, VTLS_INFOF_ALPN_OFFER_1STR, ALPN_HTTP_1_0);
+    for(i = 0; i < connssl->alpn->count; ++i) {
+      alpn[i].data = (unsigned char *)connssl->alpn->entries[i];
+      alpn[i].size = (unsigned)strlen(connssl->alpn->entries[i]);
     }
-    else {
-#ifdef USE_HTTP2
-      if(data->state.httpwant >= CURL_HTTP_VERSION_2
-#ifndef CURL_DISABLE_PROXY
-         && (!Curl_ssl_cf_is_proxy(cf) || !cf->conn->bits.tunnel_proxy)
-#endif
-        ) {
-        protocols[cur].data = (unsigned char *)ALPN_H2;
-        protocols[cur++].size = ALPN_H2_LENGTH;
-        infof(data, VTLS_INFOF_ALPN_OFFER_1STR, ALPN_H2);
-      }
-#endif
-
-      protocols[cur].data = (unsigned char *)ALPN_HTTP_1_1;
-      protocols[cur++].size = ALPN_HTTP_1_1_LENGTH;
-      infof(data, VTLS_INFOF_ALPN_OFFER_1STR, ALPN_HTTP_1_1);
-    }
-
-    if(gnutls_alpn_set_protocols(backend->gtls.session, protocols, cur, 0)) {
+    if(gnutls_alpn_set_protocols(backend->gtls.session, alpn,
+                                 (unsigned)connssl->alpn->count, 0)) {
       failf(data, "failed setting ALPN");
       return CURLE_SSL_CONNECT_ERROR;
     }
+    Curl_alpn_to_proto_str(&proto, connssl->alpn);
+    infof(data, VTLS_INFOF_ALPN_OFFER_1STR, proto.data);
   }
 
   /* This might be a reconnect, so we check for a session ID in the cache
