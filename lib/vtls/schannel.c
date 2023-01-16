@@ -1105,7 +1105,7 @@ schannel_connect_step1(struct Curl_cfilter *cf, struct Curl_easy *data)
 #ifdef HAS_ALPN
   /* ALPN is only supported on Windows 8.1 / Server 2012 R2 and above.
      Also it doesn't seem to be supported for Wine, see curl bug #983. */
-  backend->use_alpn = cf->conn->bits.tls_enable_alpn &&
+  backend->use_alpn = connssl->alpn &&
     !GetProcAddress(GetModuleHandle(TEXT("ntdll")),
                     "wine_get_version") &&
     curlx_verify_windows_version(6, 3, 0, PLATFORM_WINNT,
@@ -1196,6 +1196,7 @@ schannel_connect_step1(struct Curl_cfilter *cf, struct Curl_easy *data)
     int list_start_index = 0;
     unsigned int *extension_len = NULL;
     unsigned short* list_len = NULL;
+    struct alpn_proto_buf proto;
 
     /* The first four bytes will be an unsigned int indicating number
        of bytes of data in the rest of the buffer. */
@@ -1215,33 +1216,22 @@ schannel_connect_step1(struct Curl_cfilter *cf, struct Curl_easy *data)
 
     list_start_index = cur;
 
-    if(data->state.httpwant == CURL_HTTP_VERSION_1_0) {
-      alpn_buffer[cur++] = ALPN_HTTP_1_0_LENGTH;
-      memcpy(&alpn_buffer[cur], ALPN_HTTP_1_0, ALPN_HTTP_1_0_LENGTH);
-      cur += ALPN_HTTP_1_0_LENGTH;
-      infof(data, VTLS_INFOF_ALPN_OFFER_1STR, ALPN_HTTP_1_0);
+    result = Curl_alpn_to_proto_buf(&proto, connssl->alpn);
+    if(result) {
+      failf(data, "Error setting ALPN");
+      return CURLE_SSL_CONNECT_ERROR;
     }
-    else {
-#ifdef USE_HTTP2
-      if(data->state.httpwant >= CURL_HTTP_VERSION_2) {
-        alpn_buffer[cur++] = ALPN_H2_LENGTH;
-        memcpy(&alpn_buffer[cur], ALPN_H2, ALPN_H2_LENGTH);
-        cur += ALPN_H2_LENGTH;
-        infof(data, VTLS_INFOF_ALPN_OFFER_1STR, ALPN_H2);
-      }
-#endif
-
-      alpn_buffer[cur++] = ALPN_HTTP_1_1_LENGTH;
-      memcpy(&alpn_buffer[cur], ALPN_HTTP_1_1, ALPN_HTTP_1_1_LENGTH);
-      cur += ALPN_HTTP_1_1_LENGTH;
-      infof(data, VTLS_INFOF_ALPN_OFFER_1STR, ALPN_HTTP_1_1);
-    }
+    memcpy(&alpn_buffer[cur], proto.data, proto.len);
+    cur += proto.len;
 
     *list_len = curlx_uitous(cur - list_start_index);
     *extension_len = *list_len + sizeof(unsigned int) + sizeof(unsigned short);
 
     InitSecBuffer(&inbuf, SECBUFFER_APPLICATION_PROTOCOLS, alpn_buffer, cur);
     InitSecBufferDesc(&inbuf_desc, &inbuf, 1);
+
+    Curl_alpn_to_proto_str(&proto, connssl->alpn);
+    infof(data, VTLS_INFOF_ALPN_OFFER_1STR, proto.data);
   }
   else {
     InitSecBuffer(&inbuf, SECBUFFER_EMPTY, NULL, 0);
