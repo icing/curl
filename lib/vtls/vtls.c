@@ -1899,9 +1899,11 @@ static const struct alpn_spec ALPN_SPEC_H10 = {
 static const struct alpn_spec ALPN_SPEC_H11 = {
   { ALPN_HTTP_1_1 }, 1
 };
+#ifdef USE_HTTP2
 static const struct alpn_spec ALPN_SPEC_H2_H11 = {
   { ALPN_H2, ALPN_HTTP_1_1 }, 2
 };
+#endif
 
 const struct alpn_spec *
 Curl_alpn_get_spec(struct Curl_easy *data, struct connectdata *conn)
