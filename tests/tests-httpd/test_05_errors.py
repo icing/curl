@@ -50,8 +50,6 @@ class TestErrors:
                               proto):
         if proto == 'h3' and not env.have_h3():
             pytest.skip("h3 not supported")
-        if proto == 'h3':  # TODO, fix error code in curl
-            pytest.skip("h3 reports exitcode 95(CURLE_HTTP3)")
         count = 1
         curl = CurlClient(env=env)
         urln = f'https://{env.authority_for(env.domain1, proto)}' \
@@ -71,8 +69,6 @@ class TestErrors:
                               proto):
         if proto == 'h3' and not env.have_h3():
             pytest.skip("h3 not supported")
-        if proto == 'h3':  # TODO, fix error code in curl
-            pytest.skip("h3 reports exitcode 95(CURLE_HTTP3) and takes a long time")
         count = 20
         curl = CurlClient(env=env)
         urln = f'https://{env.authority_for(env.domain1, proto)}' \
