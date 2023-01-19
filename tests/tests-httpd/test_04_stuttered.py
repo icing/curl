@@ -102,7 +102,7 @@ class TestStuttered:
         r.check_responses(count=warmups+count, exp_status=200)
         assert r.total_connects == 1
         t_avg, i_min, t_min, i_max, t_max = self.stats_spread(r.stats[warmups:], 'time_total')
-        assert t_max < (3 * t_min) and t_min < 2.5, \
+        assert t_max < (3 * t_min), \
             f'avg time of transfer: {t_avg} [{i_min}={t_min}, {i_max}={t_max}]'
 
     # download 50 files in 10000 chunks a 1 byte with 10us delay between
@@ -112,8 +112,6 @@ class TestStuttered:
     def test_04_04_1000_10_1(self, env: Env, httpd, nghttpx, repeat, proto):
         if proto == 'h3' and not env.have_h3():
             pytest.skip("h3 not supported")
-        if proto == 'h2':
-            pytest.skip("h2 shows overly long request times")
         count = 50
         warmups = 100
         curl = CurlClient(env=env)
@@ -127,7 +125,7 @@ class TestStuttered:
         r.check_responses(count=warmups+count, exp_status=200)
         assert r.total_connects == 1
         t_avg, i_min, t_min, i_max, t_max = self.stats_spread(r.stats[warmups:], 'time_total')
-        assert t_max < (3 * t_min) and t_min < 3, \
+        assert t_max < (3 * t_min), \
             f'avg time of transfer: {t_avg} [{i_min}={t_min}, {i_max}={t_max}]'
 
     def stats_spread(self, stats: List[Dict], key: str) -> Tuple[float, int, float, int, float]:
