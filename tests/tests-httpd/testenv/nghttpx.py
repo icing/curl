@@ -52,6 +52,9 @@ class Nghttpx:
         self._tmp_dir = os.path.join(self._run_dir, 'tmp')
         self._process = None
         self._process: Optional[subprocess.Popen] = None
+        self._rmf(self._pid_file)
+        self._rmf(self._error_log)
+        self._write_config()
 
     def exists(self):
         return os.path.exists(self._cmd)
@@ -75,7 +78,6 @@ class Nghttpx:
         self._mkpath(self._tmp_dir)
         if self._process:
             self.stop()
-        self._write_config()
         args = [
             self._cmd,
             f'--frontend=*,{self.env.h3_port};quic',
@@ -116,15 +118,24 @@ class Nghttpx:
     def reload(self, timeout: timedelta):
         if self._process:
             running = self._process
+            self._process = None
             os.kill(running.pid, signal.SIGQUIT)
-            self.start()
-            try:
-                log.debug(f'waiting for nghttpx({running.pid}) to exit.')
-                running.wait(timeout=timeout.seconds)
-                log.debug(f'nghttpx({running.pid}) terminated -> {running.returncode}')
-                return True
-            except subprocess.TimeoutExpired:
-                log.error(f'SIGQUIT nghttpx({running.pid}), but did not shut down.')
+            if not self.start():
+                self._process = running
+                return False
+            end_wait = datetime.now() + timeout
+            while datetime.now() < end_wait:
+                try:
+                    log.debug(f'waiting for nghttpx({running.pid}) to exit.')
+                    running.wait(1)
+                    log.debug(f'nghttpx({running.pid}) terminated -> {running.returncode}')
+                    return True
+                except subprocess.TimeoutExpired:
+                    log.warning(f'nghttpx({running.pid}), not shut down yet.')
+                    os.kill(running.pid, signal.SIGQUIT)
+            log.error(f'nghttpx({running.pid}), terminate forcefully.')
+            running.terminate()
+            return True
         return False
 
     def wait_dead(self, timeout: timedelta):

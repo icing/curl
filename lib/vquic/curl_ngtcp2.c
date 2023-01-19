@@ -55,6 +55,7 @@
 #include "connect.h"
 #include "strerror.h"
 #include "dynbuf.h"
+#include "select.h"
 #include "vquic.h"
 #include "h2h3.h"
 #include "vtls/keylog.h"
@@ -158,6 +159,7 @@ struct cf_ngtcp2_ctx {
   nghttp3_conn *h3conn;
   nghttp3_settings h3settings;
   int qlogfd;
+  struct curltime connect_at;
 };
 
 
@@ -1625,12 +1627,15 @@ static CURLcode cf_process_ingress(struct Curl_cfilter *cf,
           SOCKERRNO == EINTR)
       ;
     if(recvd == -1) {
-      if(SOCKERRNO == EAGAIN || SOCKERRNO == EWOULDBLOCK)
-        break;
+      if(SOCKERRNO == EAGAIN || SOCKERRNO == EWOULDBLOCK) {
+        DEBUGF(LOG_CF(data, cf, "cf_process_ingress, recvfrom -> EAGAIN"));
+        goto out;
+      }
       if(SOCKERRNO == ECONNREFUSED) {
         const char *r_ip;
         int r_port;
-        Curl_cf_socket_peek(cf->next, NULL, NULL, &r_ip, &r_port);
+        Curl_cf_socket_peek(cf->next, data, NULL, NULL,
+                            &r_ip, &r_port, NULL, NULL);
         failf(data, "ngtcp2: connection to %s port %u refused",
               r_ip, r_port);
         return CURLE_COULDNT_CONNECT;
@@ -1647,6 +1652,8 @@ static CURLcode cf_process_ingress(struct Curl_cfilter *cf,
 
     rv = ngtcp2_conn_read_pkt(ctx->qconn, &path, &pi, buf, recvd, ts);
     if(rv) {
+      DEBUGF(LOG_CF(data, cf, "cf_process_ingress, read_pkt -> %s",
+                    ngtcp2_strerror(rv)));
       if(!ctx->last_error.error_code) {
         if(rv == NGTCP2_ERR_CRYPTO) {
           ngtcp2_connection_close_error_set_transport_error_tls_alert(
@@ -1667,6 +1674,7 @@ static CURLcode cf_process_ingress(struct Curl_cfilter *cf,
     }
   }
 
+out:
   return CURLE_OK;
 }
 
@@ -2154,6 +2162,7 @@ static void cf_ngtcp2_close(struct Curl_cfilter *cf, struct Curl_easy *data)
     ngtcp2_tstamp ts;
     ngtcp2_ssize rc;
 
+    DEBUGF(LOG_CF(data, cf, "close"));
     ts = timestamp();
     rc = ngtcp2_conn_write_connection_close(ctx->qconn, NULL, /* path */
                                             NULL, /* pkt_info */
@@ -2175,6 +2184,7 @@ static void cf_ngtcp2_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
   struct cf_ngtcp2_ctx *ctx = cf->ctx;
 
   (void)data;
+  DEBUGF(LOG_CF(data, cf, "destroy"));
   cf_ngtcp2_ctx_clear(ctx);
   free(ctx);
   cf->ctx = NULL;
@@ -2192,12 +2202,12 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
   CURLcode result;
   ngtcp2_path path; /* TODO: this must be initialized properly */
   const struct Curl_sockaddr_ex *sockaddr;
-  const char *r_ip;
-  int r_port;
+  const char *r_ip, *l_ip;
+  int r_port, l_port;
   int qfd;
 
-  result = Curl_cf_socket_peek(cf->next, &ctx->sockfd,
-                               &sockaddr, &r_ip, &r_port);
+  result = Curl_cf_socket_peek(cf->next, data, &ctx->sockfd,
+                               &sockaddr, &r_ip, &r_port, NULL, NULL);
   if(result)
     return result;
   DEBUGASSERT(ctx->sockfd != CURL_SOCKET_BAD);
@@ -2209,6 +2219,10 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
   if(-1 == rc) {
     return Curl_socket_connect_result(data, r_ip, SOCKERRNO);
   }
+
+  Curl_cf_socket_peek(cf->next, data, NULL, NULL, NULL, NULL, &l_ip, &l_port);
+  DEBUGF(LOG_CF(data, cf, "socket %d connect: [%s:%d] -> [%s:%d]",
+         ctx->sockfd, l_ip, l_port, r_ip, r_port));
 
   /* QUIC sockets need to be nonblocking */
   (void)curlx_nonblock(ctx->sockfd, TRUE);
@@ -2319,6 +2333,7 @@ static CURLcode cf_ngtcp2_connect(struct Curl_cfilter *cf,
 {
   struct cf_ngtcp2_ctx *ctx = cf->ctx;
   CURLcode result = CURLE_OK;
+  struct curltime now = Curl_now();
 
   if(cf->connected) {
     *done = TRUE;
@@ -2333,6 +2348,10 @@ static CURLcode cf_ngtcp2_connect(struct Curl_cfilter *cf,
   }
 
   *done = FALSE;
+  if(ctx->connect_at.tv_sec && Curl_timediff(now, ctx->connect_at) < 0) {
+    goto out;
+  }
+
   if(!ctx->qconn) {
     result = cf_connect_start(cf, data);
     if(result)
@@ -2358,16 +2377,42 @@ static CURLcode cf_ngtcp2_connect(struct Curl_cfilter *cf,
   }
 
 out:
+  if(result == CURLE_RECV_ERROR && ctx->qconn &&
+     ngtcp2_conn_is_in_draining_period(ctx->qconn)) {
+    /* When a QUIC server instance is shutting down, it may send us a
+     * CONNECTION_CLOSE right away. Our connection then enters the DRAINING
+     * state.
+     * This may be a stopping of the service or it may be that the server
+     * is reloading and a new instance will start serving soon.
+     * In any case, we tear down our socket and start over with a new one.
+     * We re-open the underlying UDP cf right now, but do not start
+     * connecting until called again.
+     */
+    int reconn_delay_ms = 200;
+
+    DEBUGF(LOG_CF(data, cf, "connect, remote closed, reconnect after %dms",
+                  reconn_delay_ms));
+    Curl_conn_cf_close(cf->next, data);
+    cf_ngtcp2_ctx_clear(ctx);
+    Curl_conn_cf_connect(cf->next, data, FALSE, done);
+    *done = FALSE;
+    ctx->connect_at = now;
+    ctx->connect_at.tv_usec += reconn_delay_ms * 1000;
+    Curl_expire(data, reconn_delay_ms, EXPIRE_QUIC);
+    result = CURLE_OK;
+  }
 #ifndef CURL_DISABLE_VERBOSE_STRINGS
-  if(result && result != CURLE_AGAIN) {
+  if(result) {
     const char *r_ip;
     int r_port;
 
-    Curl_cf_socket_peek(cf->next, NULL, NULL, &r_ip, &r_port);
+    Curl_cf_socket_peek(cf->next, data, NULL, NULL,
+                        &r_ip, &r_port, NULL, NULL);
     infof(data, "connect to %s port %u failed: %s",
           r_ip, r_port, curl_easy_strerror(result));
   }
 #endif
+  DEBUGF(LOG_CF(data, cf, "connect -> %d, done=%d", result, *done));
   return result;
 }
 
@@ -2387,6 +2432,7 @@ static CURLcode cf_ngtcp2_query(struct Curl_cfilter *cf,
                  INT_MAX : (int)rp->initial_max_streams_bidi;
     else  /* not arrived yet? */
       *pres1 = Curl_multi_max_concurrent_streams(data->multi);
+    DEBUGF(LOG_CF(data, cf, "query max_conncurrent -> %d", *pres1));
     return CURLE_OK;
   }
   default:
@@ -2453,7 +2499,6 @@ out:
     Curl_safefree(cf);
     Curl_safefree(ctx);
   }
-
   return result;
 }
 
