@@ -66,7 +66,6 @@ class TestEyeballs:
         assert r.exit_code == 7, f'{r}'  # could not connect
 
     # download using HTTP/3 on missing server with fallback on h2
-    @pytest.mark.skip(f'TODO: implement h3 fallback')
     def test_06_03_h3_fallback_h2(self, env: Env, httpd, nghttpx, repeat):
         nghttpx.stop_if_running()
         curl = CurlClient(env=env)
@@ -77,7 +76,6 @@ class TestEyeballs:
         assert r.responses[0]['protocol'] == 'HTTP/2'
 
     # download using HTTP/3 on missing server with fallback on http/1.1
-    @pytest.mark.skip(f'TODO: implement h3 fallback')
     def test_06_04_h3_fallback_h1(self, env: Env, httpd, nghttpx, repeat):
         nghttpx.stop_if_running()
         curl = CurlClient(env=env)
