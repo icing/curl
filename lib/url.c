@@ -408,17 +408,13 @@ CURLcode Curl_close(struct Curl_easy **datap)
     free(data->state.range);
 
   /* freed here just in case DONE wasn't called */
-  Curl_free_request_state(data);
+  Curl_req_close(&data->req);
 
   /* Close down all open SSL info and sessions */
   Curl_ssl_close_all(data);
   Curl_safefree(data->state.first_host);
   Curl_safefree(data->state.scratch);
   Curl_ssl_free_certinfo(data);
-
-  /* Cleanup possible redirect junk */
-  free(data->req.newurl);
-  data->req.newurl = NULL;
 
   if(data->state.referer_alloc) {
     Curl_safefree(data->state.referer);
@@ -475,15 +471,6 @@ CURLcode Curl_close(struct Curl_easy **datap)
   Curl_safefree(data->state.aptr.passwd);
   Curl_safefree(data->state.aptr.proxyuser);
   Curl_safefree(data->state.aptr.proxypasswd);
-
-#ifndef CURL_DISABLE_DOH
-  if(data->req.doh) {
-    Curl_dyn_free(&data->req.doh->probe[0].serverdoh);
-    Curl_dyn_free(&data->req.doh->probe[1].serverdoh);
-    curl_slist_free_all(data->req.doh->headers);
-    Curl_safefree(data->req.doh);
-  }
-#endif
 
   /* destruct wildcard structures if it is needed */
   Curl_wildcard_dtor(&data->wildcard);
@@ -2012,24 +1999,6 @@ static CURLcode setup_connection_internals(struct Curl_easy *data,
     conn->port = p->defport;
 
   return CURLE_OK;
-}
-
-/*
- * Curl_free_request_state() should free temp data that was allocated in the
- * Curl_easy for this single request.
- */
-
-void Curl_free_request_state(struct Curl_easy *data)
-{
-  Curl_safefree(data->req.p.http);
-  Curl_safefree(data->req.newurl);
-
-#ifndef CURL_DISABLE_DOH
-  if(data->req.doh) {
-    Curl_close(&data->req.doh->probe[0].easy);
-    Curl_close(&data->req.doh->probe[1].easy);
-  }
-#endif
 }
 
 
@@ -3891,11 +3860,7 @@ CURLcode Curl_connect(struct Curl_easy *data,
 
   *asyncp = FALSE; /* assume synchronous resolves by default */
 
-  /* init the single-transfer specific data */
-  Curl_free_request_state(data);
-  memset(&data->req, 0, sizeof(struct SingleRequest));
-  data->req.size = data->req.maxdownload = -1;
-  data->req.no_body = data->set.opt_no_body;
+  Curl_req_init(&data->req, &data->set);
 
   /* call the stuff that needs to be called */
   result = create_conn(data, &conn, asyncp);
@@ -3938,8 +3903,6 @@ CURLcode Curl_connect(struct Curl_easy *data,
 
 CURLcode Curl_init_do(struct Curl_easy *data, struct connectdata *conn)
 {
-  struct SingleRequest *k = &data->req;
-
   /* if this is a pushed stream, we need this: */
   CURLcode result = Curl_preconnect(data);
   if(result)
@@ -3961,10 +3924,9 @@ CURLcode Curl_init_do(struct Curl_easy *data, struct connectdata *conn)
     /* in HTTP lingo, no body means using the HEAD request... */
     data->state.httpreq = HTTPREQ_HEAD;
 
-  k->start = Curl_now(); /* start time */
-  k->header = TRUE; /* assume header */
-  k->bytecount = 0;
-  k->ignorebody = FALSE;
+  result = Curl_req_start(&data->req);
+  if(result)
+    return result;
 
   Curl_speedinit(data);
   Curl_pgrsSetUploadCounter(data, 0);
