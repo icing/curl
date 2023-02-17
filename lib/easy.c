@@ -1029,7 +1029,7 @@ struct Curl_easy *curl_easy_duphandle(struct Curl_easy *data)
  */
 void curl_easy_reset(struct Curl_easy *data)
 {
-  Curl_req_free_state(&data->req);
+  Curl_req_reset(&data->req);
 
   /* zero out UserDefined data: */
   Curl_freeset(data);

@@ -408,7 +408,7 @@ CURLcode Curl_close(struct Curl_easy **datap)
     free(data->state.range);
 
   /* freed here just in case DONE wasn't called */
-  Curl_req_close(&data->req);
+  Curl_req_reset(&data->req);
 
   /* Close down all open SSL info and sessions */
   Curl_ssl_close_all(data);

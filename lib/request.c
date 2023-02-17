@@ -35,27 +35,17 @@
 #include "curl_memory.h"
 #include "memdebug.h"
 
-void Curl_req_free_state(struct SingleRequest *req)
+void Curl_req_reset(struct SingleRequest *req)
 {
   Curl_safefree(req->p.http);
+  Curl_safefree(req->newurl);
+  /* Cleanup possible redirect junk */
   Curl_safefree(req->newurl);
 
 #ifndef CURL_DISABLE_DOH
   if(req->doh) {
     Curl_close(&req->doh->probe[0].easy);
     Curl_close(&req->doh->probe[1].easy);
-  }
-#endif
-}
-
-void Curl_req_close(struct SingleRequest *req)
-{
-  Curl_req_free_state(req);
-  /* Cleanup possible redirect junk */
-  Curl_safefree(req->newurl);
-
-#ifndef CURL_DISABLE_DOH
-  if(req->doh) {
     Curl_dyn_free(&req->doh->probe[0].serverdoh);
     Curl_dyn_free(&req->doh->probe[1].serverdoh);
     curl_slist_free_all(req->doh->headers);
@@ -66,7 +56,7 @@ void Curl_req_close(struct SingleRequest *req)
 
 void Curl_req_init(struct SingleRequest *req, const struct UserDefined *set)
 {
-  Curl_req_free_state(req);
+  Curl_req_reset(req);
   memset(req, 0, sizeof(*req));
   req->size = req->maxdownload = -1;
   req->no_body = set->opt_no_body;

@@ -154,25 +154,19 @@ struct SingleRequest {
 
 
 /**
- * Curl_req_free_state() should free temp data that was allocated in the
- * Curl_easy for this single request.
+ * (Re-)Initialize the request, given the settings from `set`.
  */
-void Curl_req_free_state(struct SingleRequest *req);
+void Curl_req_init(struct SingleRequest *req, const struct UserDefined *set);
 
 /**
- * free all intermittent data, as the request is closed.
+ * reset, freeing all intermittent data.
  */
-void Curl_req_close(struct SingleRequest *req);
+void Curl_req_reset(struct SingleRequest *req);
 
 /**
  * Request is starting, perform last initialization before use.
  */
 CURLcode Curl_req_start(struct SingleRequest *req);
-
-/**
- * (Re-)Initialize the request, given the settings from `set`.
- */
-void Curl_req_init(struct SingleRequest *req, const struct UserDefined *set);
 
 
 #endif /* HEADER_CURL_REQUEST_H */
