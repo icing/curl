@@ -65,7 +65,6 @@ void Curl_req_init(struct SingleRequest *req, const struct UserDefined *set)
 CURLcode Curl_req_start(struct SingleRequest *req)
 {
   req->start = Curl_now(); /* start time */
-  req->now = req->start;
   req->header = TRUE; /* assume header */
   req->bytecount = 0;
   req->ignorebody = FALSE;
