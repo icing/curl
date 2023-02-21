@@ -901,8 +901,6 @@ struct Curl_easy *curl_easy_duphandle(struct Curl_easy *data)
   if(Curl_req_init(outcurl))
     goto fail;
 
-  Curl_dyn_init(&outcurl->state.headerb, CURL_MAX_HTTP_HEADER);
-
   /* the connection cache is setup on demand */
   outcurl->state.conn_cache = NULL;
   outcurl->state.lastconnect_id = -1;
@@ -1015,7 +1013,6 @@ struct Curl_easy *curl_easy_duphandle(struct Curl_easy *data)
 #endif
     Curl_req_free(outcurl);
     Curl_safefree(outcurl->state.buffer);
-    Curl_dyn_free(&outcurl->state.headerb);
     Curl_safefree(outcurl->state.url);
     Curl_safefree(outcurl->state.referer);
     Curl_altsvc_cleanup(&outcurl->asi);

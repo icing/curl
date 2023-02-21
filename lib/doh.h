@@ -120,9 +120,14 @@ void de_init(struct dohentry *d);
 void de_cleanup(struct dohentry *d);
 #endif
 
+void Curl_doh_reset(struct Curl_easy *data);
+void Curl_doh_free(struct Curl_easy *data);
+
 #else /* if DoH is disabled */
 #define Curl_doh(a,b,c,d) NULL
 #define Curl_doh_is_resolved(x,y) CURLE_COULDNT_RESOLVE_HOST
+#define Curl_doh_reset(a) Curl_nop_stmt
+#define Curl_doh_free(a) Curl_nop_stmt
 #endif
 
 #endif /* HEADER_CURL_DOH_H */

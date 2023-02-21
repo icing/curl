@@ -28,6 +28,7 @@
 
 #include "curl_setup.h"
 
+#include "dynbuf.h"
 #include "timeval.h"
 
 struct UserDefined;
@@ -77,6 +78,7 @@ struct Curl_download {
                              CURLE_GOT_NOTHING error code */
   curl_off_t offset;      /* net content offset of next read. Set by
                              Content-Range: header to detect resumption */
+  struct dynbuf headerb;  /* buffer to store headers in */
   char *buf_cur;          /* current position within buf */
   char *location;         /* This points to an allocated version of the
                              Location: header data */

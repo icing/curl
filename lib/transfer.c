@@ -581,8 +581,8 @@ static CURLcode readwrite_data(struct Curl_easy *data,
       if(data->set.verbose) {
         if(k->dl.badheader) {
           Curl_debug(data, CURLINFO_DATA_IN,
-                     Curl_dyn_ptr(&data->state.headerb),
-                     Curl_dyn_len(&data->state.headerb));
+                     Curl_dyn_ptr(&data->req.dl.headerb),
+                     Curl_dyn_len(&data->req.dl.headerb));
           if(k->dl.badheader == HEADER_PARTHEADER)
             Curl_debug(data, CURLINFO_DATA_IN,
                        k->dl.buf_cur, (size_t)nread);
@@ -632,7 +632,7 @@ static CURLcode readwrite_data(struct Curl_easy *data,
 
       /* Account for body content stored in the header buffer */
       if((k->dl.badheader == HEADER_PARTHEADER) && !k->dl.ignore_body) {
-        size_t headlen = Curl_dyn_len(&data->state.headerb);
+        size_t headlen = Curl_dyn_len(&data->req.dl.headerb);
         DEBUGF(infof(data, "Increasing bytecount by %zu", headlen));
         k->dl.nread += headlen;
       }
@@ -674,16 +674,16 @@ static CURLcode readwrite_data(struct Curl_easy *data,
         if(k->dl.badheader && !k->dl.ignore_body) {
           /* we parsed a piece of data wrongly assuming it was a header
              and now we output it as body instead */
-          size_t headlen = Curl_dyn_len(&data->state.headerb);
+          size_t headlen = Curl_dyn_len(&data->req.dl.headerb);
 
           /* Don't let excess data pollute body writes */
           if(k->dl.nmax == -1 || (curl_off_t)headlen <= k->dl.nmax)
             result = Curl_client_write(data, CLIENTWRITE_BODY,
-                                       Curl_dyn_ptr(&data->state.headerb),
+                                       Curl_dyn_ptr(&data->req.dl.headerb),
                                        headlen);
           else
             result = Curl_client_write(data, CLIENTWRITE_BODY,
-                                       Curl_dyn_ptr(&data->state.headerb),
+                                       Curl_dyn_ptr(&data->req.dl.headerb),
                                        (size_t)k->dl.nmax);
 
           if(result)

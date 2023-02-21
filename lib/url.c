@@ -422,7 +422,6 @@ CURLcode Curl_close(struct Curl_easy **datap)
   up_free(data);
   Curl_req_reset(data);
   Curl_safefree(data->state.buffer);
-  Curl_dyn_free(&data->state.headerb);
   Curl_safefree(data->state.ulbuf);
   Curl_flush_cookies(data, TRUE);
 #ifndef CURL_DISABLE_COOKIES
@@ -674,7 +673,6 @@ CURLcode Curl_open(struct Curl_easy **curl)
 
   result = Curl_init_userdefined(data);
   if(!result) {
-    Curl_dyn_init(&data->state.headerb, CURL_MAX_HTTP_HEADER);
     Curl_initinfo(data);
 
     /* most recent connection is not yet defined */
@@ -686,7 +684,6 @@ CURLcode Curl_open(struct Curl_easy **curl)
 
   if(result) {
     Curl_resolver_cleanup(data->state.async.resolver);
-    Curl_dyn_free(&data->state.headerb);
     Curl_req_free(data);
     Curl_freeset(data);
     free(data);

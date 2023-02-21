@@ -1160,7 +1160,6 @@ struct UrlState {
   struct curltime keeps_speed; /* for the progress meter really */
 
   long lastconnect_id; /* The last connection, -1 if undefined */
-  struct dynbuf headerb; /* buffer to store headers in */
 
   char *buffer; /* download buffer */
   char *ulbuf; /* allocated upload buffer or NULL */

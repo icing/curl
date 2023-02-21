@@ -1572,7 +1572,7 @@ CURLcode Curl_http_done(struct Curl_easy *data,
 
   Curl_dyn_free(&http->send_buffer);
   Curl_mime_cleanpart(&http->form);
-  Curl_dyn_reset(&data->state.headerb);
+  Curl_dyn_reset(&data->req.dl.headerb);
   Curl_hyper_done(data);
   Curl_ws_done(data);
 
@@ -3072,7 +3072,7 @@ CURLcode Curl_http(struct Curl_easy *data, bool *done)
 
   /* make sure the header buffer is reset - if there are leftovers from a
      previous transfer */
-  Curl_dyn_reset(&data->state.headerb);
+  Curl_dyn_reset(&data->req.dl.headerb);
 
   /* add the main request stuff */
   /* GET/HEAD/POST/PUT */
@@ -3727,8 +3727,8 @@ CURLcode Curl_http_size(struct Curl_easy *data)
 static CURLcode verify_header(struct Curl_easy *data)
 {
   struct SingleRequest *k = &data->req;
-  const char *header = Curl_dyn_ptr(&data->state.headerb);
-  size_t hlen = Curl_dyn_len(&data->state.headerb);
+  const char *header = Curl_dyn_ptr(&data->req.dl.headerb);
+  size_t hlen = Curl_dyn_len(&data->req.dl.headerb);
   char *ptr = memchr(header, 0x00, hlen);
   if(ptr) {
     /* this is bad, bail out */
@@ -3783,7 +3783,7 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
     if(!end_ptr) {
       /* Not a complete header line within buffer, append the data to
          the end of the headerbuff. */
-      result = Curl_dyn_addn(&data->state.headerb, str_start, *nread);
+      result = Curl_dyn_addn(&data->req.dl.headerb, str_start, *nread);
       if(result)
         return result;
 
@@ -3791,8 +3791,8 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
         /* check if this looks like a protocol header */
         statusline st =
           checkprotoprefix(data, conn,
-                           Curl_dyn_ptr(&data->state.headerb),
-                           Curl_dyn_len(&data->state.headerb));
+                           Curl_dyn_ptr(&data->req.dl.headerb),
+                           Curl_dyn_len(&data->req.dl.headerb));
 
         if(st == STATUS_BAD) {
           /* this is not the beginning of a protocol first header line */
@@ -3818,7 +3818,7 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
 
     full_length = k->dl.buf_cur - str_start;
 
-    result = Curl_dyn_addn(&data->state.headerb, str_start, full_length);
+    result = Curl_dyn_addn(&data->req.dl.headerb, str_start, full_length);
     if(result)
       return result;
 
@@ -3829,8 +3829,8 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
     if(!k->dl.nhd_lines) {
       /* the first read header */
       statusline st = checkprotoprefix(data, conn,
-                                       Curl_dyn_ptr(&data->state.headerb),
-                                       Curl_dyn_len(&data->state.headerb));
+                                       Curl_dyn_ptr(&data->req.dl.headerb),
+                                       Curl_dyn_len(&data->req.dl.headerb));
       if(st == STATUS_BAD) {
         streamclose(conn, "bad HTTP: No end-of-message indicator");
         /* this is not the beginning of a protocol first header line */
@@ -3855,7 +3855,7 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
 
     /* headers are in network encoding so use 0x0a and 0x0d instead of '\n'
        and '\r' */
-    headp = Curl_dyn_ptr(&data->state.headerb);
+    headp = Curl_dyn_ptr(&data->req.dl.headerb);
     if((0x0a == *headp) || (0x0d == *headp)) {
       size_t headerlen;
       /* Zero-length header line means end of headers! */
@@ -3992,9 +3992,9 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
         (data->set.include_header ? CLIENTWRITE_BODY : 0) |
         ((k->dl.httpcode/100 == 1) ? CLIENTWRITE_1XX : 0);
 
-      headerlen = Curl_dyn_len(&data->state.headerb);
+      headerlen = Curl_dyn_len(&data->req.dl.headerb);
       result = Curl_client_write(data, writetype,
-                                 Curl_dyn_ptr(&data->state.headerb),
+                                 Curl_dyn_ptr(&data->req.dl.headerb),
                                  headerlen);
       if(result)
         return result;
@@ -4143,7 +4143,7 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
       }
 
       /* We continue reading headers, reset the line-based header */
-      Curl_dyn_reset(&data->state.headerb);
+      Curl_dyn_reset(&data->req.dl.headerb);
       continue;
     }
 
@@ -4241,8 +4241,8 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
           if(!nc) {
             statusline check =
               checkhttpprefix(data,
-                              Curl_dyn_ptr(&data->state.headerb),
-                              Curl_dyn_len(&data->state.headerb));
+                              Curl_dyn_ptr(&data->req.dl.headerb),
+                              Curl_dyn_len(&data->req.dl.headerb));
             if(check == STATUS_DONE) {
               nc = 1;
               k->dl.httpcode = 200;
@@ -4301,17 +4301,17 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
       writetype |= CLIENTWRITE_1XX;
 
     Curl_debug(data, CURLINFO_HEADER_IN, headp,
-               Curl_dyn_len(&data->state.headerb));
+               Curl_dyn_len(&data->req.dl.headerb));
 
     result = Curl_client_write(data, writetype, headp,
-                               Curl_dyn_len(&data->state.headerb));
+                               Curl_dyn_len(&data->req.dl.headerb));
     if(result)
       return result;
 
-    data->info.header_size += Curl_dyn_len(&data->state.headerb);
-    data->req.dl.nhd_bytes += Curl_dyn_len(&data->state.headerb);
+    data->info.header_size += Curl_dyn_len(&data->req.dl.headerb);
+    data->req.dl.nhd_bytes += Curl_dyn_len(&data->req.dl.headerb);
 
-    Curl_dyn_reset(&data->state.headerb);
+    Curl_dyn_reset(&data->req.dl.headerb);
   }
   while(*k->dl.buf_cur); /* header line within buffer */
 

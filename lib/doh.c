@@ -981,4 +981,22 @@ CURLcode Curl_doh_is_resolved(struct Curl_easy *data,
   return CURLE_OK;
 }
 
+void Curl_doh_reset(struct Curl_easy *data)
+{
+  if(data->req.doh) {
+    Curl_close(&data->req.doh->probe[0].easy);
+    Curl_close(&data->req.doh->probe[1].easy);
+  }
+}
+
+void Curl_doh_free(struct Curl_easy *data)
+{
+  if(data->req.doh) {
+    Curl_dyn_free(&data->req.doh->probe[0].serverdoh);
+    Curl_dyn_free(&data->req.doh->probe[1].serverdoh);
+    curl_slist_free_all(data->req.doh->headers);
+    Curl_safefree(data->req.doh);
+  }
+}
+
 #endif /* CURL_DISABLE_DOH */

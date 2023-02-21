@@ -138,18 +138,18 @@ static int hyper_each_header(void *userdata,
   if(!data->req.dl.nread)
     Curl_pgrsTime(data, TIMER_STARTTRANSFER);
 
-  Curl_dyn_reset(&data->state.headerb);
+  Curl_dyn_reset(&data->req.dl.headerb);
   if(name_len) {
-    if(Curl_dyn_addf(&data->state.headerb, "%.*s: %.*s\r\n",
+    if(Curl_dyn_addf(&data->req.dl.headerb, "%.*s: %.*s\r\n",
                      (int) name_len, name, (int) value_len, value))
       return HYPER_ITER_BREAK;
   }
   else {
-    if(Curl_dyn_addn(&data->state.headerb, STRCONST("\r\n")))
+    if(Curl_dyn_addn(&data->req.dl.headerb, STRCONST("\r\n")))
       return HYPER_ITER_BREAK;
   }
-  len = Curl_dyn_len(&data->state.headerb);
-  headp = Curl_dyn_ptr(&data->state.headerb);
+  len = Curl_dyn_len(&data->req.dl.headerb);
+  headp = Curl_dyn_ptr(&data->req.dl.headerb);
 
   result = Curl_http_header(data, data->conn, headp);
   if(result) {
@@ -284,16 +284,16 @@ static CURLcode status_line(struct Curl_easy *data,
       return result;
   }
 
-  Curl_dyn_reset(&data->state.headerb);
+  Curl_dyn_reset(&data->req.dl.headerb);
 
-  result = Curl_dyn_addf(&data->state.headerb, "HTTP/%s %03d %.*s\r\n",
+  result = Curl_dyn_addf(&data->req.dl.headerb, "HTTP/%s %03d %.*s\r\n",
                          vstr,
                          (int)http_status,
                          (int)rlen, reason);
   if(result)
     return result;
-  len = Curl_dyn_len(&data->state.headerb);
-  Curl_debug(data, CURLINFO_HEADER_IN, Curl_dyn_ptr(&data->state.headerb),
+  len = Curl_dyn_len(&data->req.dl.headerb);
+  Curl_debug(data, CURLINFO_HEADER_IN, Curl_dyn_ptr(&data->req.dl.headerb),
              len);
 
   if(!data->state.hconnect || !data->set.suppress_connect_headers) {
@@ -301,7 +301,7 @@ static CURLcode status_line(struct Curl_easy *data,
     if(data->set.include_header)
       writetype |= CLIENTWRITE_BODY;
     result = Curl_client_write(data, writetype,
-                               Curl_dyn_ptr(&data->state.headerb), len);
+                               Curl_dyn_ptr(&data->req.dl.headerb), len);
     if(result)
       return result;
   }

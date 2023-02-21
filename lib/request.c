@@ -39,12 +39,18 @@
 static void dl_reset(struct Curl_easy *data)
 {
   struct SingleRequest *req = &data->req;
+  struct dynbuf hd_save;
 
   /* Cleanup writer stack */
   Curl_unencode_cleanup(data);
 
   Curl_safefree(data->req.dl.location);
+  Curl_dyn_free(&data->req.dl.headerb);
+  hd_save = data->req.dl.headerb;
+
   memset(&req->dl, 0, sizeof(req->dl));
+
+  data->req.dl.headerb = hd_save;
   req->dl.size = req->dl.nmax = -1;
   req->dl.parse_headers = TRUE; /* assume header */
 }
@@ -68,27 +74,22 @@ void Curl_req_reset(struct Curl_easy *data)
   Curl_safefree(req->p.http);
   Curl_safefree(data->req.newurl);
 
-#ifndef CURL_DISABLE_DOH
-  if(req->doh) {
-    Curl_close(&req->doh->probe[0].easy);
-    Curl_close(&req->doh->probe[1].easy);
-  }
-#endif
+  Curl_doh_reset(data);
 }
 
 void Curl_req_free(struct Curl_easy *data)
 {
-  struct SingleRequest *req = &data->req;
-
   Curl_req_reset(data);
-#ifndef CURL_DISABLE_DOH
-  if(req->doh) {
-    Curl_dyn_free(&req->doh->probe[0].serverdoh);
-    Curl_dyn_free(&req->doh->probe[1].serverdoh);
-    curl_slist_free_all(req->doh->headers);
-    Curl_safefree(req->doh);
-  }
-#endif
+  Curl_dyn_free(&data->req.dl.headerb);
+  Curl_doh_free(data);
+}
+
+CURLcode Curl_req_init(struct Curl_easy *data)
+{
+  (void)data;
+  Curl_dyn_init(&data->req.dl.headerb, CURL_MAX_HTTP_HEADER);
+
+  return CURLE_OK;
 }
 
 CURLcode Curl_req_start(struct Curl_easy *data)
@@ -102,8 +103,3 @@ CURLcode Curl_req_start(struct Curl_easy *data)
   return CURLE_OK;
 }
 
-CURLcode Curl_req_init(struct Curl_easy *data)
-{
-  (void)data;
-  return CURLE_OK;
-}
