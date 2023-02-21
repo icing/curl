@@ -454,7 +454,9 @@ static CURLcode on_resp_header(struct Curl_cfilter *cf,
       infof(data, "CONNECT responded chunked");
       ts->chunked_encoding = TRUE;
       /* init our chunky engine */
-      Curl_httpchunk_init(data);
+      result = Curl_httpchunk_init(data);
+      if(result)
+        return result;
     }
   }
   else if(Curl_compareheader(header,

@@ -24,6 +24,10 @@
  *
  ***************************************************************************/
 
+#include "curl_setup.h"
+
+#include "dynbuf.h"
+
 struct connectdata;
 
 /*
@@ -89,12 +93,13 @@ struct Curl_chunker {
   ChunkyState state;
   unsigned char hexindex;
   char hexbuffer[ CHUNK_MAXNUM_LEN + 1]; /* +1 for null-terminator */
+  struct dynbuf trailer;
 };
 
-/* The following functions are defined in http_chunks.c */
-void Curl_httpchunk_init(struct Curl_easy *data);
+CURLcode Curl_httpchunk_init(struct Curl_easy *data);
 CHUNKcode Curl_httpchunk_read(struct Curl_easy *data, char *datap,
                               ssize_t length, ssize_t *wrote,
                               CURLcode *passthru);
+void Curl_httpchunk_free(struct Curl_easy *data);
 
 #endif /* HEADER_CURL_HTTP_CHUNKS_H */

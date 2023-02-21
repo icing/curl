@@ -77,13 +77,34 @@
 
 #define isxdigit_ascii(x) Curl_isxdigit(x)
 
-void Curl_httpchunk_init(struct Curl_easy *data)
+CURLcode Curl_httpchunk_init(struct Curl_easy *data)
 {
-  struct connectdata *conn = data->conn;
-  struct Curl_chunker *chunk = &conn->chunk;
-  chunk->hexindex = 0;      /* start at 0 */
-  chunk->state = CHUNK_HEX; /* we get hex first! */
-  Curl_dyn_init(&conn->trailer, DYN_H1_TRAILER);
+  struct Curl_chunker *chunker = data->req.dl.chunker;
+
+  if(!chunker) {
+    chunker = calloc(1, sizeof(*chunker));
+    if(!chunker)
+      return CURLE_OUT_OF_MEMORY;
+    data->req.dl.chunker = chunker;
+    Curl_dyn_init(&chunker->trailer, DYN_H1_TRAILER);
+  }
+  else {
+      Curl_dyn_reset(&chunker->trailer);
+  }
+  chunker->hexindex = 0;      /* start at 0 */
+  chunker->state = CHUNK_HEX; /* we get hex first! */
+  return CURLE_OK;
+}
+
+void Curl_httpchunk_free(struct Curl_easy *data)
+{
+  struct Curl_chunker *chunker = data->req.dl.chunker;
+
+  if(chunker) {
+    Curl_dyn_free(&chunker->trailer);
+    free(chunker);
+    data->req.dl.chunker = NULL;
+  }
 }
 
 /*
@@ -104,12 +125,12 @@ CHUNKcode Curl_httpchunk_read(struct Curl_easy *data,
                               CURLcode *extrap)
 {
   CURLcode result = CURLE_OK;
-  struct connectdata *conn = data->conn;
-  struct Curl_chunker *ch = &conn->chunk;
+  struct Curl_chunker *ch = data->req.dl.chunker;
   struct SingleRequest *k = &data->req;
   size_t piece;
   curl_off_t length = (curl_off_t)datalen;
 
+  DEBUGASSERT(ch);
   *wrote = 0; /* nothing's written yet */
 
   /* the original data is written to the client, but we go on with the
@@ -209,18 +230,18 @@ CHUNKcode Curl_httpchunk_read(struct Curl_easy *data,
 
     case CHUNK_TRAILER:
       if((*datap == 0x0d) || (*datap == 0x0a)) {
-        char *tr = Curl_dyn_ptr(&conn->trailer);
+        char *tr = Curl_dyn_ptr(&ch->trailer);
         /* this is the end of a trailer, but if the trailer was zero bytes
            there was no trailer and we move on */
 
         if(tr) {
           size_t trlen;
-          result = Curl_dyn_addn(&conn->trailer, (char *)STRCONST("\x0d\x0a"));
+          result = Curl_dyn_addn(&ch->trailer, (char *)STRCONST("\x0d\x0a"));
           if(result)
             return CHUNKE_OUT_OF_MEMORY;
 
-          tr = Curl_dyn_ptr(&conn->trailer);
-          trlen = Curl_dyn_len(&conn->trailer);
+          tr = Curl_dyn_ptr(&ch->trailer);
+          trlen = Curl_dyn_len(&ch->trailer);
           if(!data->set.http_te_skip) {
             result = Curl_client_write(data,
                                        CLIENTWRITE_HEADER|CLIENTWRITE_TRAILER,
@@ -230,7 +251,7 @@ CHUNKcode Curl_httpchunk_read(struct Curl_easy *data,
               return CHUNKE_PASSTHRU_ERROR;
             }
           }
-          Curl_dyn_reset(&conn->trailer);
+          Curl_dyn_reset(&ch->trailer);
           ch->state = CHUNK_TRAILER_CR;
           if(*datap == 0x0a)
             /* already on the LF */
@@ -243,7 +264,7 @@ CHUNKcode Curl_httpchunk_read(struct Curl_easy *data,
         }
       }
       else {
-        result = Curl_dyn_addn(&conn->trailer, datap, 1);
+        result = Curl_dyn_addn(&ch->trailer, datap, 1);
         if(result)
           return CHUNKE_OUT_OF_MEMORY;
       }

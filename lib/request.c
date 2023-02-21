@@ -27,6 +27,7 @@
 #include <curl/curl.h>
 
 #include "content_encoding.h"
+#include "http_chunks.h"
 #include "request.h"
 #include "doh.h"
 #include "url.h"
@@ -46,10 +47,11 @@ static void dl_reset(struct Curl_easy *data)
 
   Curl_safefree(data->req.dl.location);
   Curl_dyn_free(&data->req.dl.headerb);
+#ifndef CURL_DISABLE_HTTP
+  Curl_httpchunk_free(data);
+#endif
   hd_save = data->req.dl.headerb;
-
   memset(&req->dl, 0, sizeof(req->dl));
-
   data->req.dl.headerb = hd_save;
   req->dl.size = req->dl.nmax = -1;
   req->dl.parse_headers = TRUE; /* assume header */

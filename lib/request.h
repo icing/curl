@@ -32,6 +32,7 @@
 #include "timeval.h"
 
 struct UserDefined;
+struct Curl_chunker;
 
 enum expect100 {
   EXP100_SEND_DATA,           /* enough waiting, just send the body now */
@@ -77,17 +78,20 @@ struct Curl_download {
   curl_off_t nmax;        /* maximum amount of data bytes to fetch,
                              -1 means unlimited */
   curl_off_t nread;       /* total number of content bytes read */
-  curl_off_t nhd_bytes;   /* total numbe rof header bytes read */
-  curl_off_t nhd_bytes_deduct; /* this amount of bytes doesn't count when we
+  curl_off_t offset;      /* net content offset of next read. Set by
+                             Content-Range: header to detect resumption */
+  curl_off_t hd_nread;    /* total numbe rof header bytes read */
+  curl_off_t hd_nread_deduct; /* this amount of bytes doesn't count when we
                              check if anything has been transferred at
                              the end of a connection. We use this
                              counter to make only a 100 reply (without a
                              following second response code) result in a
                              CURLE_GOT_NOTHING error code */
-  curl_off_t offset;      /* net content offset of next read. Set by
-                             Content-Range: header to detect resumption */
   struct dynbuf headerb;  /* buffer to store headers in */
   char *buf_cur;          /* current position within buf */
+#ifndef CURL_DISABLE_HTTP
+  struct Curl_chunker *chunker; /* state of chunked transfer encoding */
+#endif
   char *location;         /* This points to an allocated version of the
                              Location: header data */
   struct contenc_writer *writer; /* Content unencoding stack.

@@ -1066,7 +1066,8 @@ CURLcode Curl_build_unencoding_stack(struct Curl_easy *data,
     /* Special case: chunked encoding is handled at the reader level. */
     if(is_transfer && namelen == 7 && strncasecompare(name, "chunked", 7)) {
       k->dl.chunky = TRUE;             /* chunks coming our way. */
-      Curl_httpchunk_init(data);   /* init our chunky engine. */
+      if(Curl_httpchunk_init(data)) /* init our chunky engine. */
+        return CURLE_OUT_OF_MEMORY;
     }
     else if(namelen) {
       const struct content_encoding *encoding = find_encoding(name, namelen);

@@ -175,7 +175,7 @@ static int hyper_each_header(void *userdata,
   }
 
   data->info.header_size += (curl_off_t)len;
-  data->req.dl.nhd_bytes += (curl_off_t)len;
+  data->req.dl.hd_nread += (curl_off_t)len;
   return HYPER_ITER_CONTINUE;
 }
 
@@ -306,7 +306,7 @@ static CURLcode status_line(struct Curl_easy *data,
       return result;
   }
   data->info.header_size += (curl_off_t)len;
-  data->req.dl.nhd_bytes += (curl_off_t)len;
+  data->req.dl.hd_nread += (curl_off_t)len;
   return CURLE_OK;
 }
 
@@ -479,8 +479,8 @@ CURLcode Curl_hyper_stream(struct Curl_easy *data,
     if(result)
       break;
 
-    k->dl.nhd_bytes_deduct =
-      (100 <= http_status && 199 >= http_status)?k->dl.nhd_bytes:0;
+    k->dl.hd_nread_deduct =
+      (100 <= http_status && 199 >= http_status)?k->dl.hd_nread:0;
 #ifdef USE_WEBSOCKETS
     if(k->dl.upgr101 == UPGR101_WS) {
       if(http_status == 101) {

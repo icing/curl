@@ -1584,8 +1584,8 @@ CURLcode Curl_http_done(struct Curl_easy *data,
      !conn->bits.retry &&
      !data->set.connect_only &&
      (data->req.dl.nread +
-      data->req.dl.nhd_bytes -
-      data->req.dl.nhd_bytes_deduct) <= 0) {
+      data->req.dl.hd_nread -
+      data->req.dl.hd_nread_deduct) <= 0) {
     /* If this connection isn't simply closed to be retried, AND nothing was
        read from the HTTP server (that counts), this can't be right so we
        return an error here */
@@ -4000,7 +4000,7 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
         return result;
 
       data->info.header_size += (long)headerlen;
-      data->req.dl.nhd_bytes += (long)headerlen;
+      data->req.dl.hd_nread += (long)headerlen;
 
       /*
        * When all the headers have been parsed, see if we should give
@@ -4022,9 +4022,9 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
 #endif
 
 
-      data->req.dl.nhd_bytes_deduct = (100 <= k->dl.httpcode
+      data->req.dl.hd_nread_deduct = (100 <= k->dl.httpcode
                                        && 199 >= k->dl.httpcode)?
-                                       data->req.dl.nhd_bytes:0;
+                                       data->req.dl.hd_nread:0;
 
       /* Curl_http_auth_act() checks what authentication methods
        * that are available and decides which one (if any) to
@@ -4309,7 +4309,7 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
       return result;
 
     data->info.header_size += Curl_dyn_len(&data->req.dl.headerb);
-    data->req.dl.nhd_bytes += Curl_dyn_len(&data->req.dl.headerb);
+    data->req.dl.hd_nread += Curl_dyn_len(&data->req.dl.headerb);
 
     Curl_dyn_reset(&data->req.dl.headerb);
   }

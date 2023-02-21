@@ -619,10 +619,10 @@ static CURLcode readwrite_data(struct Curl_easy *data,
 
           /* N number of bytes at the end of the str buffer that weren't
              written to the client. */
-          if(conn->chunk.datasize) {
+          if(data->req.dl.chunker->datasize) {
             infof(data, "Leftovers after chunking: % "
                   CURL_FORMAT_CURL_OFF_T "u bytes",
-                  conn->chunk.datasize);
+                  data->req.dl.chunker->datasize);
           }
         }
         /* If it returned OK, we just keep going */
@@ -1203,8 +1203,8 @@ CURLcode Curl_readwrite(struct connectdata *conn,
       result = CURLE_PARTIAL_FILE;
       goto out;
     }
-    if(!(data->req.no_body) && k->dl.chunky &&
-       (conn->chunk.state != CHUNK_STOP)) {
+    if(!(data->req.no_body) && k->dl.chunky && data->req.dl.chunker &&
+       (data->req.dl.chunker->state != CHUNK_STOP)) {
       /*
        * In chunked mode, return an error if the connection is closed prior to
        * the empty (terminating) chunk is read.
@@ -1430,7 +1430,7 @@ CURLcode Curl_pretransfer(struct Curl_easy *data)
     result = Curl_setstropt(&data->state.aptr.proxypasswd,
                             data->set.str[STRING_PROXYPASSWORD]);
 
-  data->req.dl.nhd_bytes = 0;
+  data->req.dl.hd_nread = 0;
   Curl_headers_cleanup(data);
   return result;
 }
@@ -1756,7 +1756,7 @@ CURLcode Curl_retry_request(struct Curl_easy *data, char **url)
      !(conn->handler->protocol&(PROTO_FAMILY_HTTP|CURLPROTO_RTSP)))
     return CURLE_OK;
 
-  if((data->req.dl.nread + data->req.dl.nhd_bytes == 0) &&
+  if((data->req.dl.nread + data->req.dl.hd_nread == 0) &&
      conn->bits.reuse &&
      (!data->req.no_body || (conn->handler->protocol & PROTO_FAMILY_HTTP))
 #ifndef CURL_DISABLE_RTSP
@@ -1772,7 +1772,7 @@ CURLcode Curl_retry_request(struct Curl_easy *data, char **url)
        it again. Bad luck. Retry the same request on a fresh connect! */
     retry = TRUE;
   else if(data->state.refused_stream &&
-          (data->req.dl.nread + data->req.dl.nhd_bytes == 0) ) {
+          (data->req.dl.nread + data->req.dl.hd_nread == 0) ) {
     /* This was sent on a refused stream, safe to rerun. A refused stream
        error can typically only happen on HTTP/2 level if the stream is safe
        to issue again, but the nghttp2 API can deliver the message to other
