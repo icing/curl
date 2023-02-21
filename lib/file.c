@@ -299,7 +299,7 @@ static CURLcode file_upload(struct Curl_easy *data)
    * Since FILE: doesn't do the full init, we need to provide some extra
    * assignments here.
    */
-  data->req.upload_fromhere = buf;
+  data->req.ul.buf = buf;
 
   if(!dir)
     return CURLE_FILE_COULDNT_READ_FILE; /* fix: better error code */
@@ -520,8 +520,8 @@ static CURLcode file_do(struct Curl_easy *data, bool *done)
   }
 
   /* A high water mark has been specified so we obey... */
-  if(data->req.maxdownload > 0)
-    expected_size = data->req.maxdownload;
+  if(data->req.dl.nmax > 0)
+    expected_size = data->req.dl.nmax;
 
   if(!fstated || (expected_size <= 0))
     size_known = FALSE;

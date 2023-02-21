@@ -947,17 +947,17 @@ static CURLcode client_write(struct Curl_easy *data,
       plen--;
     result = Curl_client_write(data, CLIENTWRITE_BODY, (char *) prefix, plen);
     if(!result)
-      data->req.bytecount += plen;
+      data->req.dl.nread += plen;
   }
   if(!result && value) {
     result = Curl_client_write(data, CLIENTWRITE_BODY, (char *) value, len);
     if(!result)
-      data->req.bytecount += len;
+      data->req.dl.nread += len;
   }
   if(!result && suffix) {
     result = Curl_client_write(data, CLIENTWRITE_BODY, (char *) suffix, slen);
     if(!result)
-      data->req.bytecount += slen;
+      data->req.dl.nread += slen;
   }
   return result;
 }
@@ -1015,7 +1015,7 @@ static ssize_t oldap_recv(struct Curl_easy *data, int sockindex, char *buf,
       infof(data, "There are more than %d entries", lr->nument);
       /* FALLTHROUGH */
     case LDAP_SUCCESS:
-      data->req.size = data->req.bytecount;
+      data->req.dl.size = data->req.dl.nread;
       break;
     default:
       failf(data, "LDAP remote: search failed %s %s", ldap_err2string(code),

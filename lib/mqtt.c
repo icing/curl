@@ -643,8 +643,8 @@ static CURLcode mqtt_read_publish(struct Curl_easy *data, bool *done)
       goto end;
     }
     Curl_pgrsSetDownloadSize(data, remlen);
-    data->req.bytecount = 0;
-    data->req.size = remlen;
+    data->req.dl.nread = 0;
+    data->req.dl.size = remlen;
     mq->npacket = remlen; /* get this many bytes */
     /* FALLTHROUGH */
   case MQTT_PUB_REMAIN: {
@@ -668,8 +668,8 @@ static CURLcode mqtt_read_publish(struct Curl_easy *data, bool *done)
     Curl_debug(data, CURLINFO_DATA_IN, (char *)pkt, (size_t)nread);
 
     mq->npacket -= nread;
-    k->bytecount += nread;
-    Curl_pgrsSetDownloadCounter(data, k->bytecount);
+    k->dl.nread += nread;
+    Curl_pgrsSetDownloadCounter(data, k->dl.nread);
 
     /* if QoS is set, message contains packet id */
 

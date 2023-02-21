@@ -755,8 +755,8 @@ static int push_promise(struct Curl_cfilter *cf,
 
     newstream = newhandle->req.p.http;
     newstream->stream_id = frame->promised_stream_id;
-    newhandle->req.maxdownload = -1;
-    newhandle->req.size = -1;
+    newhandle->req.dl.nmax = -1;
+    newhandle->req.dl.size = -1;
 
     /* approved, add to the multi handle and immediately switch to PERFORM
        state with the given connection !*/
@@ -1440,7 +1440,7 @@ CURLcode Curl_http2_request_upgrade(struct dynbuf *req,
                          NGHTTP2_CLEARTEXT_PROTO_VERSION_ID, base64);
   free(base64);
 
-  k->upgr101 = UPGR101_H2;
+  k->dl.upgr101 = UPGR101_H2;
 
   return result;
 }
@@ -2560,7 +2560,7 @@ CURLcode Curl_http2_upgrade(struct Curl_easy *data,
 
   DEBUGASSERT(!Curl_conn_is_http2(data, conn, sockindex));
   DEBUGF(infof(data, DMSGI(data, sockindex, "upgrading to HTTP/2")));
-  DEBUGASSERT(data->req.upgr101 == UPGR101_RECEIVED);
+  DEBUGASSERT(data->req.dl.upgr101 == UPGR101_RECEIVED);
 
   result = http2_cfilter_add(&cf, data, conn, sockindex);
   if(result)

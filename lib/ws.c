@@ -110,7 +110,7 @@ CURLcode Curl_ws_request(struct Curl_easy *data, REQTYPE *req)
 #endif
     }
   }
-  k->upgr101 = UPGR101_WS;
+  k->dl.upgr101 = UPGR101_WS;
   Curl_dyn_init(&data->req.p.http->ws.buf, MAX_WS_SIZE * 2);
   return result;
 }
@@ -164,7 +164,7 @@ CURLcode Curl_ws_accept(struct Curl_easy *data,
     wsp->stillb = Curl_dyn_ptr(&wsc->early);
     wsp->stillblen = Curl_dyn_len(&wsc->early);
   }
-  k->upgr101 = UPGR101_RECEIVED;
+  k->dl.upgr101 = UPGR101_RECEIVED;
 
   if(data->set.connect_only)
     /* switch off non-blocking sockets */

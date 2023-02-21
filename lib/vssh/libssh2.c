@@ -2167,14 +2167,14 @@ static CURLcode ssh_statemach_act(struct Curl_easy *data, bool *block)
         /* now, decrease the size of the read */
         if(data->state.infilesize > 0) {
           data->state.infilesize -= data->state.resume_from;
-          data->req.size = data->state.infilesize;
+          data->req.ul.size = data->state.infilesize;
           Curl_pgrsSetUploadSize(data, data->state.infilesize);
         }
 
         SFTP_SEEK(sshc->sftp_handle, data->state.resume_from);
       }
       if(data->state.infilesize > 0) {
-        data->req.size = data->state.infilesize;
+        data->req.ul.size = data->state.infilesize;
         Curl_pgrsSetUploadSize(data, data->state.infilesize);
       }
       /* upload data */
@@ -2333,7 +2333,7 @@ static CURLcode ssh_statemach_act(struct Curl_easy *data, bool *block)
           }
           /* since this counts what we send to the client, we include the
              newline in this counter */
-          data->req.bytecount += readdir_len + 1;
+          data->req.dl.nread += readdir_len + 1;
 
           /* output debug output if that is requested */
           Curl_debug(data, CURLINFO_DATA_IN, sshp->readdir_filename,
@@ -2423,7 +2423,7 @@ static CURLcode ssh_statemach_act(struct Curl_easy *data, bool *block)
         Curl_debug(data, CURLINFO_DATA_IN,
                    Curl_dyn_ptr(&sshp->readdir),
                    Curl_dyn_len(&sshp->readdir));
-        data->req.bytecount += Curl_dyn_len(&sshp->readdir);
+        data->req.dl.nread += Curl_dyn_len(&sshp->readdir);
       }
       if(result) {
         Curl_dyn_free(&sshp->readdir);
@@ -2495,8 +2495,8 @@ static CURLcode ssh_statemach_act(struct Curl_easy *data, bool *block)
          * OR the server doesn't return a file size with a stat()
          * OR file size is 0
          */
-        data->req.size = -1;
-        data->req.maxdownload = -1;
+        data->req.dl.size = -1;
+        data->req.dl.nmax = -1;
         Curl_pgrsSetDownloadSize(data, -1);
       }
       else {
@@ -2546,8 +2546,8 @@ static CURLcode ssh_statemach_act(struct Curl_easy *data, bool *block)
 
           SFTP_SEEK(sshc->sftp_handle, from);
         }
-        data->req.size = size;
-        data->req.maxdownload = size;
+        data->req.dl.size = size;
+        data->req.dl.nmax = size;
         Curl_pgrsSetDownloadSize(data, size);
       }
 
@@ -2574,8 +2574,8 @@ static CURLcode ssh_statemach_act(struct Curl_easy *data, bool *block)
           }
         }
         /* Now store the number of bytes we are expected to download */
-        data->req.size = attrs.filesize - data->state.resume_from;
-        data->req.maxdownload = attrs.filesize - data->state.resume_from;
+        data->req.dl.size = attrs.filesize - data->state.resume_from;
+        data->req.dl.nmax = attrs.filesize - data->state.resume_from;
         Curl_pgrsSetDownloadSize(data,
                                  attrs.filesize - data->state.resume_from);
         SFTP_SEEK(sshc->sftp_handle, data->state.resume_from);
@@ -2583,14 +2583,14 @@ static CURLcode ssh_statemach_act(struct Curl_easy *data, bool *block)
     }
 
     /* Setup the actual download */
-    if(data->req.size == 0) {
+    if(data->req.dl.size == 0) {
       /* no data to transfer */
       Curl_setup_transfer(data, -1, -1, FALSE, -1);
       infof(data, "File already completely downloaded");
       state(data, SSH_STOP);
       break;
     }
-    Curl_setup_transfer(data, FIRSTSOCKET, data->req.size, FALSE, -1);
+    Curl_setup_transfer(data, FIRSTSOCKET, data->req.dl.size, FALSE, -1);
 
     /* not set by Curl_setup_transfer to preserve keepon bits */
     conn->writesockfd = conn->sockfd;
@@ -2734,7 +2734,7 @@ static CURLcode ssh_statemach_act(struct Curl_easy *data, bool *block)
       }
 
       /* upload data */
-      data->req.size = data->state.infilesize;
+      data->req.ul.size = data->state.infilesize;
       Curl_pgrsSetUploadSize(data, data->state.infilesize);
       Curl_setup_transfer(data, -1, -1, FALSE, FIRSTSOCKET);
 
@@ -2806,7 +2806,7 @@ static CURLcode ssh_statemach_act(struct Curl_easy *data, bool *block)
 
       /* download data */
       bytecount = (curl_off_t)sb.st_size;
-      data->req.maxdownload = (curl_off_t)sb.st_size;
+      data->req.dl.nmax = (curl_off_t)sb.st_size;
       Curl_setup_transfer(data, FIRSTSOCKET, bytecount, FALSE, -1);
 
       /* not set by Curl_setup_transfer to preserve keepon bits */
@@ -3432,7 +3432,8 @@ static CURLcode ssh_do(struct Curl_easy *data, bool *done)
 
   *done = FALSE; /* default to false */
 
-  data->req.size = -1; /* make sure this is unknown at this point */
+  data->req.dl.size = -1; /* make sure this is unknown at this point */
+  data->req.ul.size = -1; /* make sure this is unknown at this point */
 
   sshc->actualcode = CURLE_OK; /* reset error code */
   sshc->secondCreateDirs = 0;   /* reset the create dir attempt state

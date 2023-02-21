@@ -62,8 +62,8 @@ static int rtsp_getsock_do(struct Curl_easy *data,
 /*
  * Parse and write out any available RTP data.
  *
- * nread: amount of data left after k->str. will be modified if RTP
- *        data is parsed and k->str is moved up
+ * nread: amount of data left after k->dl.buf_cur. will be modified if RTP
+ *        data is parsed and k->dl.buf_cur is moved up
  * readmore: whether or not the RTP parser needs more data right away
  */
 static CURLcode rtsp_rtp_readwrite(struct Curl_easy *data,
@@ -549,7 +549,7 @@ static CURLcode rtsp_do(struct Curl_easy *data, bool *done)
   }
 
   /* RTSP never allows chunked transfer */
-  data->req.forbidchunk = TRUE;
+  data->req.ul.forbid_chunk = TRUE;
   /* Finish the request buffer */
   result = Curl_dyn_addn(&req_buffer, STRCONST("\r\n"));
   if(result)
@@ -575,10 +575,10 @@ static CURLcode rtsp_do(struct Curl_easy *data, bool *done)
   /* Increment the CSeq on success */
   data->state.rtsp_next_client_CSeq++;
 
-  if(data->req.writebytecount) {
+  if(data->req.ul.nwritten) {
     /* if a request-body has been sent off, we make sure this progress is
        noted properly */
-    Curl_pgrsSetUploadCounter(data, data->req.writebytecount);
+    Curl_pgrsSetUploadCounter(data, data->req.ul.nwritten);
     if(Curl_pgrsUpdate(data))
       result = CURLE_ABORTED_BY_CALLBACK;
   }
@@ -609,14 +609,14 @@ static CURLcode rtsp_rtp_readwrite(struct Curl_easy *data,
       return CURLE_OUT_OF_MEMORY;
     }
     rtspc->rtp_buf = newptr;
-    memcpy(rtspc->rtp_buf + rtspc->rtp_bufsize, k->str, *nread);
+    memcpy(rtspc->rtp_buf + rtspc->rtp_bufsize, k->dl.buf_cur, *nread);
     rtspc->rtp_bufsize += *nread;
     rtp = rtspc->rtp_buf;
     rtp_dataleft = rtspc->rtp_bufsize;
   }
   else {
     /* Just parse the request buffer directly */
-    rtp = k->str;
+    rtp = k->dl.buf_cur;
     rtp_dataleft = *nread;
   }
 
@@ -690,14 +690,14 @@ static CURLcode rtsp_rtp_readwrite(struct Curl_easy *data,
     *nread = 0;
     return CURLE_OK;
   }
-  /* Fix up k->str to point just after the last RTP packet */
-  k->str += *nread - rtp_dataleft;
+  /* Fix up k->dl.buf_cur to point just after the last RTP packet */
+  k->dl.buf_cur += *nread - rtp_dataleft;
 
   /* either all of the data has been read or...
    * rtp now points at the next byte to parse
    */
   if(rtp_dataleft > 0)
-    DEBUGASSERT(k->str[0] == rtp[0]);
+    DEBUGASSERT(k->dl.buf_cur[0] == rtp[0]);
 
   DEBUGASSERT(rtp_dataleft <= *nread); /* sanity check */
 

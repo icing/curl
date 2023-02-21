@@ -570,7 +570,7 @@ static CURLcode smb_send_tree_disconnect(struct Curl_easy *data)
 static CURLcode smb_send_read(struct Curl_easy *data)
 {
   struct smb_request *req = data->req.p.smb;
-  curl_off_t offset = data->req.offset;
+  curl_off_t offset = data->req.dl.offset;
   struct smb_read msg;
 
   memset(&msg, 0, sizeof(msg));
@@ -589,8 +589,8 @@ static CURLcode smb_send_write(struct Curl_easy *data)
 {
   struct smb_write *msg;
   struct smb_request *req = data->req.p.smb;
-  curl_off_t offset = data->req.offset;
-  curl_off_t upload_size = data->req.size - data->req.bytecount;
+  curl_off_t offset = data->req.ul.offset;
+  curl_off_t upload_size = data->req.ul.size - data->req.ul.nwritten;
   CURLcode result = Curl_get_upload_buffer(data);
   if(result)
     return result;
@@ -626,7 +626,7 @@ static CURLcode smb_send_and_recv(struct Curl_easy *data, void **msg)
   if(!smbc->send_size && smbc->upload_size) {
     size_t nread = smbc->upload_size > (size_t)data->set.upload_buffer_size ?
       (size_t)data->set.upload_buffer_size : smbc->upload_size;
-    data->req.upload_fromhere = data->state.ulbuf;
+    data->req.ul.buf = data->state.ulbuf;
     result = Curl_fillreadbuffer(data, nread, &nread);
     if(result && result != CURLE_AGAIN)
       return result;
@@ -813,21 +813,22 @@ static CURLcode smb_request_state(struct Curl_easy *data, bool *done)
     }
     smb_m = (const struct smb_nt_create_response*) msg;
     req->fid = smb_swap16(smb_m->fid);
-    data->req.offset = 0;
+    data->req.dl.offset = 0;
+    data->req.ul.offset = 0;
     if(data->set.upload) {
-      data->req.size = data->state.infilesize;
-      Curl_pgrsSetUploadSize(data, data->req.size);
+      data->req.ul.size = data->state.infilesize;
+      Curl_pgrsSetUploadSize(data, data->req.ul.size);
       next_state = SMB_UPLOAD;
     }
     else {
       smb_m = (const struct smb_nt_create_response*) msg;
-      data->req.size = smb_swap64(smb_m->end_of_file);
-      if(data->req.size < 0) {
+      data->req.dl.size = smb_swap64(smb_m->end_of_file);
+      if(data->req.dl.size < 0) {
         req->result = CURLE_WEIRD_SERVER_REPLY;
         next_state = SMB_CLOSE;
       }
       else {
-        Curl_pgrsSetDownloadSize(data, data->req.size);
+        Curl_pgrsSetDownloadSize(data, data->req.dl.size);
         if(data->set.get_filetime)
           get_posix_time(&data->info.filetime, smb_m->last_change_time);
         next_state = SMB_DOWNLOAD;
@@ -860,9 +861,9 @@ static CURLcode smb_request_state(struct Curl_easy *data, bool *done)
         break;
       }
     }
-    data->req.bytecount += len;
-    data->req.offset += len;
-    Curl_pgrsSetDownloadCounter(data, data->req.bytecount);
+    data->req.dl.nread += len;
+    data->req.dl.offset += len;
+    Curl_pgrsSetDownloadCounter(data, data->req.dl.nread);
     next_state = (len < MAX_PAYLOAD_SIZE) ? SMB_CLOSE : SMB_DOWNLOAD;
     break;
 
@@ -874,10 +875,10 @@ static CURLcode smb_request_state(struct Curl_easy *data, bool *done)
     }
     len = Curl_read16_le(((const unsigned char *) msg) +
                          sizeof(struct smb_header) + 5);
-    data->req.bytecount += len;
-    data->req.offset += len;
-    Curl_pgrsSetUploadCounter(data, data->req.bytecount);
-    if(data->req.bytecount >= data->req.size)
+    data->req.ul.nwritten += len;
+    data->req.ul.offset += len;
+    Curl_pgrsSetUploadCounter(data, data->req.ul.nwritten);
+    if(data->req.ul.nwritten >= data->req.ul.size)
       next_state = SMB_CLOSE;
     else
       next_state = SMB_UPLOAD;

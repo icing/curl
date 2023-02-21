@@ -135,7 +135,7 @@ static int hyper_each_header(void *userdata,
     return HYPER_ITER_BREAK;
   }
 
-  if(!data->req.bytecount)
+  if(!data->req.dl.nread)
     Curl_pgrsTime(data, TIMER_STARTTRANSFER);
 
   Curl_dyn_reset(&data->state.headerb);
@@ -165,7 +165,7 @@ static int hyper_each_header(void *userdata,
       writetype |= CLIENTWRITE_BODY;
     if(data->state.hconnect)
       writetype |= CLIENTWRITE_CONNECT;
-    if(data->req.httpcode/100 == 1)
+    if(data->req.dl.httpcode/100 == 1)
       writetype |= CLIENTWRITE_1XX;
     result = Curl_client_write(data, writetype, headp, len);
     if(result) {
@@ -175,7 +175,7 @@ static int hyper_each_header(void *userdata,
   }
 
   data->info.header_size += (curl_off_t)len;
-  data->req.headerbytecount += (curl_off_t)len;
+  data->req.dl.nhd_bytes += (curl_off_t)len;
   return HYPER_ITER_CONTINUE;
 }
 
@@ -187,14 +187,14 @@ static int hyper_body_chunk(void *userdata, const hyper_buf *chunk)
   struct SingleRequest *k = &data->req;
   CURLcode result = CURLE_OK;
 
-  if(0 == k->bodywrites++) {
+  if(0 == k->dl.bodywrites++) {
     bool done = FALSE;
 #if defined(USE_NTLM)
     struct connectdata *conn = data->conn;
     if(conn->bits.close &&
-       (((data->req.httpcode == 401) &&
+       (((data->req.dl.httpcode == 401) &&
          (conn->http_ntlm_state == NTLMSTATE_TYPE2)) ||
-        ((data->req.httpcode == 407) &&
+        ((data->req.dl.httpcode == 407) &&
          (conn->proxy_ntlm_state == NTLMSTATE_TYPE2)))) {
       infof(data, "Connection closed while negotiating NTLM");
       data->state.authproblem = TRUE;
@@ -203,18 +203,18 @@ static int hyper_body_chunk(void *userdata, const hyper_buf *chunk)
 #endif
     if(data->state.expect100header) {
       Curl_expire_done(data, EXPIRE_100_TIMEOUT);
-      if(data->req.httpcode < 400) {
-        k->exp100 = EXP100_SEND_DATA;
+      if(data->req.dl.httpcode < 400) {
+        k->dl.exp100 = EXP100_SEND_DATA;
         if(data->hyp.exp100_waker) {
           hyper_waker_wake(data->hyp.exp100_waker);
           data->hyp.exp100_waker = NULL;
         }
       }
       else { /* >= 4xx */
-        k->exp100 = EXP100_FAILED;
+        k->dl.exp100 = EXP100_FAILED;
       }
     }
-    if(data->state.hconnect && (data->req.httpcode/100 != 2) &&
+    if(data->state.hconnect && (data->req.dl.httpcode/100 != 2) &&
        data->state.authproxy.done) {
       done = TRUE;
       result = CURLE_OK;
@@ -227,14 +227,14 @@ static int hyper_body_chunk(void *userdata, const hyper_buf *chunk)
       return HYPER_ITER_BREAK;
     }
   }
-  if(k->ignorebody)
+  if(k->dl.ignore_body)
     return HYPER_ITER_CONTINUE;
   if(0 == len)
     return HYPER_ITER_CONTINUE;
   Curl_debug(data, CURLINFO_DATA_IN, buf, len);
-  if(!data->set.http_ce_skip && k->writer_stack)
+  if(!data->set.http_ce_skip && k->dl.writer)
     /* content-encoded data */
-    result = Curl_unencode_write(data, k->writer_stack, buf, len);
+    result = Curl_unencode_write(data, k->dl.writer, buf, len);
   else
     result = Curl_client_write(data, CLIENTWRITE_BODY, buf, len);
 
@@ -243,8 +243,8 @@ static int hyper_body_chunk(void *userdata, const hyper_buf *chunk)
     return HYPER_ITER_BREAK;
   }
 
-  data->req.bytecount += len;
-  Curl_pgrsSetDownloadCounter(data, data->req.bytecount);
+  data->req.dl.nread += len;
+  Curl_pgrsSetDownloadCounter(data, data->req.dl.nread);
   return HYPER_ITER_CONTINUE;
 }
 
@@ -267,7 +267,7 @@ static CURLcode status_line(struct Curl_easy *data,
 
   /* We need to set 'httpcodeq' for functions that check the response code in
      a single place. */
-  data->req.httpcode = http_status;
+  data->req.dl.httpcode = http_status;
 
   if(data->state.hconnect)
     /* CONNECT */
@@ -306,7 +306,7 @@ static CURLcode status_line(struct Curl_easy *data,
       return result;
   }
   data->info.header_size += (curl_off_t)len;
-  data->req.headerbytecount += (curl_off_t)len;
+  data->req.dl.nhd_bytes += (curl_off_t)len;
   return CURLE_OK;
 }
 
@@ -347,12 +347,12 @@ CURLcode Curl_hyper_stream(struct Curl_easy *data,
   struct SingleRequest *k = &data->req;
   (void)conn;
 
-  if(k->exp100 > EXP100_SEND_DATA) {
+  if(k->dl.exp100 > EXP100_SEND_DATA) {
     struct curltime now = Curl_now();
-    timediff_t ms = Curl_timediff(now, k->start100);
+    timediff_t ms = Curl_timediff(now, k->dl.start100);
     if(ms >= data->set.expect_100_timeout) {
       /* we've waited long enough, continue anyway */
-      k->exp100 = EXP100_SEND_DATA;
+      k->dl.exp100 = EXP100_SEND_DATA;
       k->keepon |= KEEP_SEND;
       Curl_expire_done(data, EXPIRE_100_TIMEOUT);
       infof(data, "Done waiting for 100-continue");
@@ -408,7 +408,7 @@ CURLcode Curl_hyper_stream(struct Curl_easy *data,
         failf(data, "Hyper: [%d] %.*s", (int)code, (int)errlen, errbuf);
         if(code == HYPERE_ABORTED_BY_CALLBACK)
           result = CURLE_OK;
-        else if((code == HYPERE_UNEXPECTED_EOF) && !data->req.bytecount)
+        else if((code == HYPERE_UNEXPECTED_EOF) && !data->req.dl.nread)
           result = CURLE_GOT_NOTHING;
         else if(code == HYPERE_INVALID_PEER_MESSAGE)
           result = CURLE_UNSUPPORTED_PROTOCOL; /* maybe */
@@ -425,7 +425,7 @@ CURLcode Curl_hyper_stream(struct Curl_easy *data,
       *done = TRUE;
       h->endtask = NULL;
       infof(data, "hyperstream is done");
-      if(!k->bodywrites) {
+      if(!k->dl.bodywrites) {
         /* hyper doesn't always call the body write callback */
         bool stilldone;
         result = Curl_http_firstwrite(data, data->conn, &stilldone);
@@ -479,10 +479,10 @@ CURLcode Curl_hyper_stream(struct Curl_easy *data,
     if(result)
       break;
 
-    k->deductheadercount =
-      (100 <= http_status && 199 >= http_status)?k->headerbytecount:0;
+    k->dl.nhd_bytes_deduct =
+      (100 <= http_status && 199 >= http_status)?k->dl.nhd_bytes:0;
 #ifdef USE_WEBSOCKETS
-    if(k->upgr101 == UPGR101_WS) {
+    if(k->dl.upgr101 == UPGR101_WS) {
       if(http_status == 101) {
         /* verify the response */
         result = Curl_ws_accept(data, NULL, 0);
@@ -490,7 +490,7 @@ CURLcode Curl_hyper_stream(struct Curl_easy *data,
           return result;
       }
       else {
-        failf(data, "Expected 101, got %u", k->httpcode);
+        failf(data, "Expected 101, got %u", k->dl.httpcode);
         result = CURLE_HTTP_RETURNED_ERROR;
         break;
       }
@@ -663,8 +663,8 @@ static int uploadpostfields(void *userdata, hyper_context *ctx,
 {
   struct Curl_easy *data = (struct Curl_easy *)userdata;
   (void)ctx;
-  if(data->req.exp100 > EXP100_SEND_DATA) {
-    if(data->req.exp100 == EXP100_FAILED)
+  if(data->req.dl.exp100 > EXP100_SEND_DATA) {
+    if(data->req.dl.exp100 == EXP100_FAILED)
       return HYPER_POLL_ERROR;
 
     /* still waiting confirmation */
@@ -673,7 +673,7 @@ static int uploadpostfields(void *userdata, hyper_context *ctx,
     data->hyp.exp100_waker = hyper_context_waker(ctx);
     return HYPER_POLL_PENDING;
   }
-  if(data->req.upload_done)
+  if(data->req.ul.done)
     *chunk = NULL; /* nothing more to deliver */
   else {
     /* send everything off in a single go */
@@ -685,11 +685,11 @@ static int uploadpostfields(void *userdata, hyper_context *ctx,
       data->state.hresult = CURLE_OUT_OF_MEMORY;
       return HYPER_POLL_ERROR;
     }
-    /* increasing the writebytecount here is a little premature but we
+    /* increasing the ul.nwritten here is a little premature but we
        don't know exactly when the body is sent */
-    data->req.writebytecount += (size_t)data->req.p.http->postsize;
-    Curl_pgrsSetUploadCounter(data, data->req.writebytecount);
-    data->req.upload_done = TRUE;
+    data->req.ul.nwritten += (size_t)data->req.p.http->postsize;
+    Curl_pgrsSetUploadCounter(data, data->req.ul.nwritten);
+    data->req.ul.done = TRUE;
   }
   return HYPER_POLL_READY;
 }
@@ -703,8 +703,8 @@ static int uploadstreamed(void *userdata, hyper_context *ctx,
   CURLcode result;
   (void)ctx;
 
-  if(data->req.exp100 > EXP100_SEND_DATA) {
-    if(data->req.exp100 == EXP100_FAILED)
+  if(data->req.dl.exp100 > EXP100_SEND_DATA) {
+    if(data->req.dl.exp100 == EXP100_FAILED)
       return HYPER_POLL_ERROR;
 
     /* still waiting confirmation */
@@ -714,9 +714,9 @@ static int uploadstreamed(void *userdata, hyper_context *ctx,
     return HYPER_POLL_PENDING;
   }
 
-  if(data->req.upload_chunky && conn->bits.authneg) {
+  if(data->req.ul.chunky && conn->bits.authneg) {
     fillcount = 0;
-    data->req.upload_chunky = FALSE;
+    data->req.ul.chunky = FALSE;
     result = CURLE_OK;
   }
   else {
@@ -747,9 +747,9 @@ static int uploadstreamed(void *userdata, hyper_context *ctx,
       data->state.hresult = CURLE_OUT_OF_MEMORY;
       return HYPER_POLL_ERROR;
     }
-    /* increasing the writebytecount here is a little premature but we
+    /* increasing the ul.nwritten here is a little premature but we
        don't know exactly when the body is sent */
-    data->req.writebytecount += fillcount;
+    data->req.ul.nwritten += fillcount;
     Curl_pgrsSetUploadCounter(data, fillcount);
   }
   return HYPER_POLL_READY;
@@ -790,7 +790,7 @@ static CURLcode bodysend(struct Curl_easy *data,
       if(result)
         return result;
       /* init the "upload from here" pointer */
-      data->req.upload_fromhere = data->state.ulbuf;
+      data->req.ul.buf = data->state.ulbuf;
       hyper_body_set_data_func(body, uploadstreamed);
     }
     if(HYPERE_OK != hyper_request_set_body(hyperreq, body)) {
@@ -1175,11 +1175,11 @@ CURLcode Curl_http(struct Curl_easy *data, bool *done)
 
   Curl_debug(data, CURLINFO_HEADER_OUT, (char *)"\r\n", 2);
 
-  if(data->req.upload_chunky && conn->bits.authneg) {
-    data->req.upload_chunky = TRUE;
+  if(data->req.ul.chunky && conn->bits.authneg) {
+    data->req.ul.chunky = TRUE;
   }
   else {
-    data->req.upload_chunky = FALSE;
+    data->req.ul.chunky = FALSE;
   }
   sendtask = hyper_clientconn_send(client, req);
   if(!sendtask) {
@@ -1205,7 +1205,7 @@ CURLcode Curl_http(struct Curl_easy *data, bool *done)
   if(data->state.expect100header)
     /* Timeout count starts now since with Hyper we don't know exactly when
        the full request has been sent. */
-    data->req.start100 = Curl_now();
+    data->req.dl.start100 = Curl_now();
 
   /* clear userpwd and proxyuserpwd to avoid re-using old credentials
    * from re-used connections */

@@ -130,7 +130,7 @@ typedef void (*init_multistate_func)(struct Curl_easy *data);
 /* called in DID state, before PERFORMING state */
 static void before_perform(struct Curl_easy *data)
 {
-  data->req.chunk = FALSE;
+  data->req.dl.chunky = FALSE;
   Curl_pgrsTime(data, TIMER_PRETRANSFER);
 }
 
@@ -624,10 +624,6 @@ static CURLcode multi_done(struct Curl_easy *data,
   /* Stop the resolver and free its own resources (but not dns_entry yet). */
   Curl_resolver_kill(data);
 
-  /* Cleanup possible redirect junk */
-  Curl_safefree(data->req.newurl);
-  Curl_safefree(data->req.location);
-
   switch(status) {
   case CURLE_ABORTED_BY_CALLBACK:
   case CURLE_READ_ERROR:
@@ -662,6 +658,7 @@ static CURLcode multi_done(struct Curl_easy *data,
 
   CONNCACHE_LOCK(data);
   Curl_detach_connection(data);
+
   if(CONN_INUSE(conn)) {
     /* Stop if still used. */
     CONNCACHE_UNLOCK(data);
@@ -1627,19 +1624,19 @@ static bool multi_handle_timeout(struct Curl_easy *data,
             Curl_timediff(*now, data->progress.t_startsingle));
     else {
       struct SingleRequest *k = &data->req;
-      if(k->size != -1) {
+      if(k->dl.size != -1) {
         failf(data, "Operation timed out after %" CURL_FORMAT_TIMEDIFF_T
               " milliseconds with %" CURL_FORMAT_CURL_OFF_T " out of %"
               CURL_FORMAT_CURL_OFF_T " bytes received",
               Curl_timediff(*now, data->progress.t_startsingle),
-              k->bytecount, k->size);
+              k->dl.nread, k->dl.size);
       }
       else {
         failf(data, "Operation timed out after %" CURL_FORMAT_TIMEDIFF_T
               " milliseconds with %" CURL_FORMAT_CURL_OFF_T
               " bytes received",
               Curl_timediff(*now, data->progress.t_startsingle),
-              k->bytecount);
+              k->dl.nread);
       }
     }
 
@@ -2525,10 +2522,10 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
 
           /* but first check to see if we got a location info even though we're
              not following redirects */
-          if(data->req.location) {
+          if(data->req.dl.location) {
             free(newurl);
-            newurl = data->req.location;
-            data->req.location = NULL;
+            newurl = data->req.dl.location;
+            data->req.dl.location = NULL;
             result = Curl_follow(data, newurl, FOLLOW_FAKE);
             free(newurl);
             if(result) {

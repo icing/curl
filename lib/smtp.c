@@ -1637,7 +1637,7 @@ static CURLcode smtp_regular_transfer(struct Curl_easy *data,
   bool connected = FALSE;
 
   /* Make sure size is unknown at this point */
-  data->req.size = -1;
+  data->req.dl.size = -1;
 
   /* Set the progress data */
   Curl_pgrsSetUploadCounter(data, 0);
@@ -1862,9 +1862,9 @@ CURLcode Curl_smtp_escape_eob(struct Curl_easy *data,
   /* This loop can be improved by some kind of Boyer-Moore style of
      approach but that is saved for later... */
   if(offset)
-    memcpy(scratch, data->req.upload_fromhere, offset);
+    memcpy(scratch, data->req.ul.buf, offset);
   for(i = offset, si = offset; i < nread; i++) {
-    if(SMTP_EOB[smtp->eob] == data->req.upload_fromhere[i]) {
+    if(SMTP_EOB[smtp->eob] == data->req.ul.buf[i]) {
       smtp->eob++;
 
       /* Is the EOB potentially the terminating CRLF? */
@@ -1879,7 +1879,7 @@ CURLcode Curl_smtp_escape_eob(struct Curl_easy *data,
       si += smtp->eob - eob_sent;
 
       /* Then compare the first byte */
-      if(SMTP_EOB[0] == data->req.upload_fromhere[i])
+      if(SMTP_EOB[0] == data->req.ul.buf[i])
         smtp->eob = 1;
       else
         smtp->eob = 0;
@@ -1900,7 +1900,7 @@ CURLcode Curl_smtp_escape_eob(struct Curl_easy *data,
       eob_sent = 0;
     }
     else if(!smtp->eob)
-      scratch[si++] = data->req.upload_fromhere[i];
+      scratch[si++] = data->req.ul.buf[i];
   }
 
   if(smtp->eob - eob_sent) {
@@ -1912,7 +1912,7 @@ CURLcode Curl_smtp_escape_eob(struct Curl_easy *data,
   /* Only use the new buffer if we replaced something */
   if(si != nread) {
     /* Upload from the new (replaced) buffer instead */
-    data->req.upload_fromhere = scratch;
+    data->req.ul.buf = scratch;
 
     /* Save the buffer so it can be freed later */
     data->state.scratch = scratch;
@@ -1921,7 +1921,7 @@ CURLcode Curl_smtp_escape_eob(struct Curl_easy *data,
     free(oldscratch);
 
     /* Set the new amount too */
-    data->req.upload_present = si;
+    data->req.ul.buf_len = si;
   }
   else
     free(newscratch);

@@ -2471,13 +2471,13 @@ static CURLcode ftp_state_get_resp(struct Curl_easy *data,
     else if(ftp->downloadsize > -1)
       size = ftp->downloadsize;
 
-    if(size > data->req.maxdownload && data->req.maxdownload > 0)
-      size = data->req.size = data->req.maxdownload;
+    if(size > data->req.dl.nmax && data->req.dl.nmax > 0)
+      size = data->req.dl.size = data->req.dl.nmax;
     else if((instate != FTP_LIST) && (data->state.prefer_ascii))
       size = -1; /* kludge for servers that understate ASCII mode file size */
 
     infof(data, "Maxdownload = %" CURL_FORMAT_CURL_OFF_T,
-          data->req.maxdownload);
+          data->req.dl.nmax);
 
     if(instate != FTP_LIST)
       infof(data, "Getting file with size: %" CURL_FORMAT_CURL_OFF_T,
@@ -3274,7 +3274,7 @@ static CURLcode ftp_done(struct Curl_easy *data, CURLcode status,
 #endif
 
   if(conn->sock[SECONDARYSOCKET] != CURL_SOCKET_BAD) {
-    if(!result && ftpc->dont_check && data->req.maxdownload > 0) {
+    if(!result && ftpc->dont_check && data->req.dl.nmax > 0) {
       /* partial download completed */
       result = Curl_pp_sendf(data, pp, "%s", "ABOR");
       if(result) {
@@ -3316,7 +3316,7 @@ static CURLcode ftp_done(struct Curl_easy *data, CURLcode status,
       return result;
     }
 
-    if(ftpc->dont_check && data->req.maxdownload > 0) {
+    if(ftpc->dont_check && data->req.dl.nmax > 0) {
       /* we have just sent ABOR and there is no reliable way to check if it was
        * successful or not; we have to close the connection now */
       infof(data, "partial download completed, closing connection");
@@ -3348,34 +3348,34 @@ static CURLcode ftp_done(struct Curl_easy *data, CURLcode status,
     ;
   else if(data->set.upload) {
     if((-1 != data->state.infilesize) &&
-       (data->state.infilesize != data->req.writebytecount) &&
+       (data->state.infilesize != data->req.ul.nwritten) &&
        !data->set.crlf &&
        (ftp->transfer == PPTRANSFER_BODY)) {
       failf(data, "Uploaded unaligned file size (%" CURL_FORMAT_CURL_OFF_T
             " out of %" CURL_FORMAT_CURL_OFF_T " bytes)",
-            data->req.writebytecount, data->state.infilesize);
+            data->req.ul.nwritten, data->state.infilesize);
       result = CURLE_PARTIAL_FILE;
     }
   }
   else {
-    if((-1 != data->req.size) &&
-       (data->req.size != data->req.bytecount) &&
+    if((-1 != data->req.dl.size) &&
+       (data->req.dl.size != data->req.dl.nread) &&
 #ifdef CURL_DO_LINEEND_CONV
        /* Most FTP servers don't adjust their file SIZE response for CRLFs, so
         * we'll check to see if the discrepancy can be explained by the number
         * of CRLFs we've changed to LFs.
         */
-       ((data->req.size + data->state.crlf_conversions) !=
-        data->req.bytecount) &&
+       ((data->req.dl.size + data->state.crlf_conversions) !=
+        data->req.dl.nread) &&
 #endif /* CURL_DO_LINEEND_CONV */
-       (data->req.maxdownload != data->req.bytecount)) {
+       (data->req.dl.nmax != data->req.dl.nread)) {
       failf(data, "Received only partial file: %" CURL_FORMAT_CURL_OFF_T
-            " bytes", data->req.bytecount);
+            " bytes", data->req.dl.nread);
       result = CURLE_PARTIAL_FILE;
     }
     else if(!ftpc->dont_check &&
-            !data->req.bytecount &&
-            (data->req.size>0)) {
+            !data->req.dl.nread &&
+            (data->req.dl.size>0)) {
       failf(data, "No data was received");
       result = CURLE_FTP_COULDNT_RETR_FILE;
     }
@@ -3623,7 +3623,7 @@ static CURLcode ftp_do_more(struct Curl_easy *data, int *completep)
 
       result = Curl_range(data);
 
-      if(result == CURLE_OK && data->req.maxdownload >= 0) {
+      if(result == CURLE_OK && data->req.dl.nmax >= 0) {
         /* Don't check for successful transfer */
         ftpc->dont_check = TRUE;
       }
@@ -4285,7 +4285,7 @@ CURLcode ftp_regular_transfer(struct Curl_easy *data,
   bool connected = FALSE;
   struct connectdata *conn = data->conn;
   struct ftp_conn *ftpc = &conn->proto.ftpc;
-  data->req.size = -1; /* make sure this is unknown at this point */
+  data->req.dl.size = -1; /* make sure this is unknown at this point */
 
   Curl_pgrsSetUploadCounter(data, 0);
   Curl_pgrsSetDownloadCounter(data, 0);

@@ -311,7 +311,7 @@ static ssize_t rtmp_recv(struct Curl_easy *data, int sockindex, char *buf,
   if(nread < 0) {
     if(r->m_read.status == RTMP_READ_COMPLETE ||
        r->m_read.status == RTMP_READ_EOF) {
-      data->req.size = data->req.bytecount;
+      data->req.dl.size = data->req.dl.nread;
       nread = 0;
     }
     else

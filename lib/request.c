@@ -26,6 +26,7 @@
 
 #include <curl/curl.h>
 
+#include "content_encoding.h"
 #include "request.h"
 #include "doh.h"
 #include "url.h"
@@ -35,17 +36,53 @@
 #include "curl_memory.h"
 #include "memdebug.h"
 
-void Curl_req_reset(struct SingleRequest *req)
+static void dl_reset(struct Curl_easy *data)
 {
+  struct SingleRequest *req = &data->req;
+
+  /* Cleanup writer stack */
+  Curl_unencode_cleanup(data);
+
+  Curl_safefree(data->req.dl.location);
+  memset(&req->dl, 0, sizeof(req->dl));
+  req->dl.size = req->dl.nmax = -1;
+  req->dl.parse_headers = TRUE; /* assume header */
+}
+
+static void ul_reset(struct Curl_easy *data)
+{
+  struct SingleRequest *req = &data->req;
+
+  memset(&req->ul, 0, sizeof(req->ul));
+  req->ul.size = -1;
+}
+
+void Curl_req_reset(struct Curl_easy *data)
+{
+  struct SingleRequest *req = &data->req;
+
+  dl_reset(data);
+  ul_reset(data);
+  req->no_body = data->set.opt_no_body;
+
   Curl_safefree(req->p.http);
-  Curl_safefree(req->newurl);
-  /* Cleanup possible redirect junk */
-  Curl_safefree(req->newurl);
+  Curl_safefree(data->req.newurl);
 
 #ifndef CURL_DISABLE_DOH
   if(req->doh) {
     Curl_close(&req->doh->probe[0].easy);
     Curl_close(&req->doh->probe[1].easy);
+  }
+#endif
+}
+
+void Curl_req_free(struct Curl_easy *data)
+{
+  struct SingleRequest *req = &data->req;
+
+  Curl_req_reset(data);
+#ifndef CURL_DISABLE_DOH
+  if(req->doh) {
     Curl_dyn_free(&req->doh->probe[0].serverdoh);
     Curl_dyn_free(&req->doh->probe[1].serverdoh);
     curl_slist_free_all(req->doh->headers);
@@ -54,20 +91,19 @@ void Curl_req_reset(struct SingleRequest *req)
 #endif
 }
 
-void Curl_req_init(struct SingleRequest *req, const struct UserDefined *set)
+CURLcode Curl_req_start(struct Curl_easy *data)
 {
-  Curl_req_reset(req);
-  memset(req, 0, sizeof(*req));
-  req->size = req->maxdownload = -1;
-  req->no_body = set->opt_no_body;
+  struct SingleRequest *req = &data->req;
+
+  dl_reset(data);
+  ul_reset(data);
+  req->start = Curl_now(); /* start time */
+
+  return CURLE_OK;
 }
 
-CURLcode Curl_req_start(struct SingleRequest *req)
+CURLcode Curl_req_init(struct Curl_easy *data)
 {
-  req->start = Curl_now(); /* start time */
-  req->header = TRUE; /* assume header */
-  req->bytecount = 0;
-  req->ignorebody = FALSE;
-
+  (void)data;
   return CURLE_OK;
 }

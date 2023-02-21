@@ -407,9 +407,6 @@ CURLcode Curl_close(struct Curl_easy **datap)
   if(data->state.rangestringalloc)
     free(data->state.range);
 
-  /* freed here just in case DONE wasn't called */
-  Curl_req_reset(&data->req);
-
   /* Close down all open SSL info and sessions */
   Curl_ssl_close_all(data);
   Curl_safefree(data->state.first_host);
@@ -423,6 +420,7 @@ CURLcode Curl_close(struct Curl_easy **datap)
   data->state.referer = NULL;
 
   up_free(data);
+  Curl_req_reset(data);
   Curl_safefree(data->state.buffer);
   Curl_dyn_free(&data->state.headerb);
   Curl_safefree(data->state.ulbuf);
@@ -660,6 +658,13 @@ CURLcode Curl_open(struct Curl_easy **curl)
 
   data->magic = CURLEASY_MAGIC_NUMBER;
 
+  result = Curl_req_init(data);
+  if(result) {
+    DEBUGF(fprintf(stderr, "Error: request init failed\n"));
+    free(data);
+    return result;
+  }
+
   result = Curl_resolver_init(data, &data->state.async.resolver);
   if(result) {
     DEBUGF(fprintf(stderr, "Error: resolver_init failed\n"));
@@ -682,6 +687,7 @@ CURLcode Curl_open(struct Curl_easy **curl)
   if(result) {
     Curl_resolver_cleanup(data->state.async.resolver);
     Curl_dyn_free(&data->state.headerb);
+    Curl_req_free(data);
     Curl_freeset(data);
     free(data);
     data = NULL;
@@ -3860,7 +3866,7 @@ CURLcode Curl_connect(struct Curl_easy *data,
 
   *asyncp = FALSE; /* assume synchronous resolves by default */
 
-  Curl_req_init(&data->req, &data->set);
+  Curl_req_reset(data);
 
   /* call the stuff that needs to be called */
   result = create_conn(data, &conn, asyncp);
@@ -3920,13 +3926,13 @@ CURLcode Curl_init_do(struct Curl_easy *data, struct connectdata *conn)
   data->state.done = FALSE; /* *_done() is not called yet */
   data->state.expect100header = FALSE;
 
+  result = Curl_req_start(data);
+  if(result)
+    return result;
+
   if(data->req.no_body)
     /* in HTTP lingo, no body means using the HEAD request... */
     data->state.httpreq = HTTPREQ_HEAD;
-
-  result = Curl_req_start(&data->req);
-  if(result)
-    return result;
 
   Curl_speedinit(data);
   Curl_pgrsSetUploadCounter(data, 0);

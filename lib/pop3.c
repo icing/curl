@@ -1327,7 +1327,7 @@ static CURLcode pop3_regular_transfer(struct Curl_easy *data,
   bool connected = FALSE;
 
   /* Make sure size is unknown at this point */
-  data->req.size = -1;
+  data->req.dl.size = -1;
 
   /* Set the progress data */
   Curl_pgrsSetUploadCounter(data, 0);

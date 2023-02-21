@@ -166,7 +166,7 @@ static void tunnel_go_state(struct Curl_cfilter *cf,
   /* leaving this one */
   switch(ts->tunnel_state) {
   case TUNNEL_CONNECT:
-    data->req.ignorebody = FALSE;
+    data->req.dl.ignore_body = FALSE;
     break;
   default:
     break;
@@ -362,7 +362,7 @@ static CURLcode send_CONNECT(struct Curl_easy *data,
 
   if(!ts->nsend) {
     size_t fillcount;
-    k->upload_fromhere = data->state.ulbuf;
+    k->ul.buf = data->state.ulbuf;
     result = Curl_fillreadbuffer(data, data->set.upload_buffer_size,
                                  &fillcount);
     if(result)
@@ -374,17 +374,17 @@ static CURLcode send_CONNECT(struct Curl_easy *data,
     /* write to socket (send away data) */
     result = Curl_write(data,
                         conn->writesockfd,  /* socket to send to */
-                        k->upload_fromhere, /* buffer pointer */
+                        k->ul.buf, /* buffer pointer */
                         ts->nsend,          /* buffer size */
                         &bytes_written);    /* actually sent */
     if(result)
       goto out;
     /* send to debug callback! */
     Curl_debug(data, CURLINFO_HEADER_OUT,
-               k->upload_fromhere, bytes_written);
+               k->ul.buf, bytes_written);
 
     ts->nsend -= bytes_written;
-    k->upload_fromhere += bytes_written;
+    k->ul.buf += bytes_written;
   }
   if(!ts->nsend)
     http->sending = HTTPSEND_NADA;
@@ -407,11 +407,11 @@ static CURLcode on_resp_header(struct Curl_cfilter *cf,
   (void)cf;
 
   if((checkprefix("WWW-Authenticate:", header) &&
-      (401 == k->httpcode)) ||
+      (401 == k->dl.httpcode)) ||
      (checkprefix("Proxy-authenticate:", header) &&
-      (407 == k->httpcode))) {
+      (407 == k->dl.httpcode))) {
 
-    bool proxy = (k->httpcode == 407) ? TRUE : FALSE;
+    bool proxy = (k->dl.httpcode == 407) ? TRUE : FALSE;
     char *auth = Curl_copy_header_value(header);
     if(!auth)
       return CURLE_OUT_OF_MEMORY;
@@ -425,12 +425,12 @@ static CURLcode on_resp_header(struct Curl_cfilter *cf,
       return result;
   }
   else if(checkprefix("Content-Length:", header)) {
-    if(k->httpcode/100 == 2) {
+    if(k->dl.httpcode/100 == 2) {
       /* A client MUST ignore any Content-Length or Transfer-Encoding
          header fields received in a successful response to CONNECT.
          "Successful" described as: 2xx (Successful). RFC 7231 4.3.6 */
       infof(data, "Ignoring Content-Length in CONNECT %03d response",
-            k->httpcode);
+            k->dl.httpcode);
     }
     else {
       (void)curlx_strtoofft(header + strlen("Content-Length:"),
@@ -441,12 +441,12 @@ static CURLcode on_resp_header(struct Curl_cfilter *cf,
                              STRCONST("Connection:"), STRCONST("close")))
     ts->close_connection = TRUE;
   else if(checkprefix("Transfer-Encoding:", header)) {
-    if(k->httpcode/100 == 2) {
+    if(k->dl.httpcode/100 == 2) {
       /* A client MUST ignore any Content-Length or Transfer-Encoding
          header fields received in a successful response to CONNECT.
          "Successful" described as: 2xx (Successful). RFC 7231 4.3.6 */
       infof(data, "Ignoring Transfer-Encoding in "
-            "CONNECT %03d response", k->httpcode);
+            "CONNECT %03d response", k->dl.httpcode);
     }
     else if(Curl_compareheader(header,
                                STRCONST("Transfer-Encoding:"),
@@ -463,9 +463,9 @@ static CURLcode on_resp_header(struct Curl_cfilter *cf,
     ts->close_connection = TRUE;
   else if(2 == sscanf(header, "HTTP/1.%d %d",
                       &subversion,
-                      &k->httpcode)) {
+                      &k->dl.httpcode)) {
     /* store the HTTP code from the proxy */
-    data->info.httpproxycode = k->httpcode;
+    data->info.httpproxycode = k->dl.httpcode;
   }
   return result;
 }
@@ -594,7 +594,7 @@ static CURLcode recv_CONNECT_resp(struct Curl_cfilter *cf,
        ('\n' == linep[0])) {
       /* end of response-headers from the proxy */
 
-      if((407 == k->httpcode) && !data->state.authproblem) {
+      if((407 == k->dl.httpcode) && !data->state.authproblem) {
         /* If we get a 407 response code with content length
            when we have no auth problem, we must ignore the
            whole response-body */
@@ -610,10 +610,10 @@ static CURLcode recv_CONNECT_resp(struct Curl_cfilter *cf,
 
           infof(data, "Ignore chunked response-body");
 
-          /* We set ignorebody true here since the chunked decoder
+          /* We set dl.ignore_body true here since the chunked decoder
              function will acknowledge that. Pay attention so that this is
              cleared again when this function returns! */
-          k->ignorebody = TRUE;
+          k->dl.ignore_body = TRUE;
 
           if(linep[1] == '\n')
             /* this can only be a LF if the letter at index 0 was a CR */
@@ -1044,7 +1044,7 @@ static CURLcode CONNECT(struct Curl_cfilter *cf,
     /* failure, close this connection to avoid re-use */
     streamclose(conn, "proxy CONNECT failure");
     tunnel_go_state(cf, ts, TUNNEL_FAILED, data);
-    failf(data, "CONNECT tunnel failed, response %d", data->req.httpcode);
+    failf(data, "CONNECT tunnel failed, response %d", data->req.dl.httpcode);
     return CURLE_RECV_ERROR;
   }
   /* 2xx response, SUCCESS! */

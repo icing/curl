@@ -908,7 +908,7 @@ static CURLcode client_unencode_write(struct Curl_easy *data,
 
   (void) writer;
 
-  if(!nbytes || k->ignorebody)
+  if(!nbytes || k->dl.ignore_body)
     return CURLE_OK;
 
   return Curl_client_write(data, CLIENTWRITE_BODY, (char *) buf, nbytes);
@@ -1013,13 +1013,13 @@ CURLcode Curl_unencode_write(struct Curl_easy *data,
 void Curl_unencode_cleanup(struct Curl_easy *data)
 {
   struct SingleRequest *k = &data->req;
-  struct contenc_writer *writer = k->writer_stack;
+  struct contenc_writer *writer = k->dl.writer;
 
   while(writer) {
-    k->writer_stack = writer->downstream;
+    k->dl.writer = writer->downstream;
     writer->handler->close_writer(data, writer);
     free(writer);
-    writer = k->writer_stack;
+    writer = k->dl.writer;
   }
 }
 
@@ -1065,39 +1065,39 @@ CURLcode Curl_build_unencoding_stack(struct Curl_easy *data,
 
     /* Special case: chunked encoding is handled at the reader level. */
     if(is_transfer && namelen == 7 && strncasecompare(name, "chunked", 7)) {
-      k->chunk = TRUE;             /* chunks coming our way. */
+      k->dl.chunky = TRUE;             /* chunks coming our way. */
       Curl_httpchunk_init(data);   /* init our chunky engine. */
     }
     else if(namelen) {
       const struct content_encoding *encoding = find_encoding(name, namelen);
       struct contenc_writer *writer;
 
-      if(!k->writer_stack) {
-        k->writer_stack = new_unencoding_writer(data, &client_encoding,
-                                                NULL, 0);
+      if(!k->dl.writer) {
+        k->dl.writer = new_unencoding_writer(data, &client_encoding,
+                                             NULL, 0);
 
-        if(!k->writer_stack)
+        if(!k->dl.writer)
           return CURLE_OUT_OF_MEMORY;
       }
 
       if(!encoding)
         encoding = &error_encoding;  /* Defer error at stack use. */
 
-      if(k->writer_stack_depth++ >= MAX_ENCODE_STACK) {
+      if(k->dl.writer_depth++ >= MAX_ENCODE_STACK) {
         failf(data, "Reject response due to more than %u content encodings",
               MAX_ENCODE_STACK);
         return CURLE_BAD_CONTENT_ENCODING;
       }
       /* Stack the unencoding stage. */
-      if(order >= k->writer_stack->order) {
+      if(order >= k->dl.writer->order) {
         writer = new_unencoding_writer(data, encoding,
-                                       k->writer_stack, order);
+                                       k->dl.writer, order);
         if(!writer)
           return CURLE_OUT_OF_MEMORY;
-        k->writer_stack = writer;
+        k->dl.writer = writer;
       }
       else {
-        struct contenc_writer *w = k->writer_stack;
+        struct contenc_writer *w = k->dl.writer;
         while(w->downstream && order < w->downstream->order)
           w = w->downstream;
         writer = new_unencoding_writer(data, encoding,

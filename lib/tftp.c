@@ -454,7 +454,7 @@ static CURLcode tftp_send_first(struct tftp_state_data *state,
     if(data->set.upload) {
       /* If we are uploading, send an WRQ */
       setpacketevent(&state->spacket, TFTP_EVENT_WRQ);
-      state->data->req.upload_fromhere =
+      state->data->req.ul.buf =
         (char *)state->spacket.data + 4;
       if(data->state.infilesize != -1)
         Curl_pgrsSetUploadSize(data, data->state.infilesize);
@@ -773,13 +773,13 @@ static CURLcode tftp_tx(struct tftp_state_data *state, tftp_event_t event)
      * data block.
      * */
     state->sbytes = 0;
-    state->data->req.upload_fromhere = (char *)state->spacket.data + 4;
+    state->data->req.ul.buf = (char *)state->spacket.data + 4;
     do {
       result = Curl_fillreadbuffer(data, state->blksize - state->sbytes, &cb);
       if(result)
         return result;
       state->sbytes += (int)cb;
-      state->data->req.upload_fromhere += cb;
+      state->data->req.ul.buf += cb;
     } while(state->sbytes < state->blksize && cb);
 
     sbytes = sendto(state->sockfd, (void *) state->spacket.data,
@@ -792,8 +792,8 @@ static CURLcode tftp_tx(struct tftp_state_data *state, tftp_event_t event)
       return CURLE_SEND_ERROR;
     }
     /* Update the progress meter */
-    k->writebytecount += state->sbytes;
-    Curl_pgrsSetUploadCounter(data, k->writebytecount);
+    k->ul.nwritten += state->sbytes;
+    Curl_pgrsSetUploadCounter(data, k->ul.nwritten);
     break;
 
   case TFTP_EVENT_TIMEOUT:
@@ -818,7 +818,7 @@ static CURLcode tftp_tx(struct tftp_state_data *state, tftp_event_t event)
         return CURLE_SEND_ERROR;
       }
       /* since this was a re-send, we remain at the still byte position */
-      Curl_pgrsSetUploadCounter(data, k->writebytecount);
+      Curl_pgrsSetUploadCounter(data, k->ul.nwritten);
     }
     break;
 
@@ -1145,8 +1145,8 @@ static CURLcode tftp_receive_packet(struct Curl_easy *data)
           tftp_state_machine(state, TFTP_EVENT_ERROR);
           return result;
         }
-        k->bytecount += state->rbytes-4;
-        Curl_pgrsSetDownloadCounter(data, (curl_off_t) k->bytecount);
+        k->dl.nread += state->rbytes-4;
+        Curl_pgrsSetDownloadCounter(data, (curl_off_t) k->dl.nread);
       }
       break;
     case TFTP_EVENT_ERROR:

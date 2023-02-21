@@ -114,7 +114,7 @@ CHUNKcode Curl_httpchunk_read(struct Curl_easy *data,
 
   /* the original data is written to the client, but we go on with the
      chunk read process, to properly calculate the content length */
-  if(data->set.http_te_skip && !k->ignorebody) {
+  if(data->set.http_te_skip && !k->dl.ignore_body) {
     result = Curl_client_write(data, CLIENTWRITE_BODY, datap, datalen);
     if(result) {
       *extrap = result;
@@ -174,9 +174,9 @@ CHUNKcode Curl_httpchunk_read(struct Curl_easy *data,
       piece = curlx_sotouz((ch->datasize >= length)?length:ch->datasize);
 
       /* Write the data portion available */
-      if(!data->set.http_te_skip && !k->ignorebody) {
-        if(!data->set.http_ce_skip && k->writer_stack)
-          result = Curl_unencode_write(data, k->writer_stack, datap, piece);
+      if(!data->set.http_te_skip && !k->dl.ignore_body) {
+        if(!data->set.http_ce_skip && k->dl.writer)
+          result = Curl_unencode_write(data, k->dl.writer, datap, piece);
         else
           result = Curl_client_write(data, CLIENTWRITE_BODY, datap, piece);
 

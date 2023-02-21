@@ -898,6 +898,9 @@ struct Curl_easy *curl_easy_duphandle(struct Curl_easy *data)
   if(dupset(outcurl, data))
     goto fail;
 
+  if(Curl_req_init(outcurl))
+    goto fail;
+
   Curl_dyn_init(&outcurl->state.headerb, CURL_MAX_HTTP_HEADER);
 
   /* the connection cache is setup on demand */
@@ -1010,6 +1013,7 @@ struct Curl_easy *curl_easy_duphandle(struct Curl_easy *data)
     curl_slist_free_all(outcurl->set.cookielist);
     outcurl->set.cookielist = NULL;
 #endif
+    Curl_req_free(outcurl);
     Curl_safefree(outcurl->state.buffer);
     Curl_dyn_free(&outcurl->state.headerb);
     Curl_safefree(outcurl->state.url);
@@ -1029,7 +1033,7 @@ struct Curl_easy *curl_easy_duphandle(struct Curl_easy *data)
  */
 void curl_easy_reset(struct Curl_easy *data)
 {
-  Curl_req_reset(&data->req);
+  Curl_req_reset(data);
 
   /* zero out UserDefined data: */
   Curl_freeset(data);
