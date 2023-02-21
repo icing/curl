@@ -58,8 +58,16 @@ static void dl_reset(struct Curl_easy *data)
 static void ul_reset(struct Curl_easy *data)
 {
   struct SingleRequest *req = &data->req;
+  struct dynbuf tr_save;
 
+#ifndef CURL_DISABLE_HTTP
+  tr_save = data->req.ul.trailers_buf;
+  Curl_dyn_free(&data->req.ul.trailers_buf);
+#endif
   memset(&req->ul, 0, sizeof(req->ul));
+#ifndef CURL_DISABLE_HTTP
+  data->req.ul.trailers_buf = tr_save;
+#endif
   req->ul.size = -1;
 }
 
@@ -81,6 +89,9 @@ void Curl_req_free(struct Curl_easy *data)
 {
   Curl_req_reset(data);
   Curl_dyn_free(&data->req.dl.headerb);
+#ifndef CURL_DISABLE_HTTP
+  Curl_dyn_free(&data->req.ul.trailers_buf);
+#endif
   Curl_doh_free(data);
 }
 
@@ -88,7 +99,9 @@ CURLcode Curl_req_init(struct Curl_easy *data)
 {
   (void)data;
   Curl_dyn_init(&data->req.dl.headerb, CURL_MAX_HTTP_HEADER);
-
+#ifndef CURL_DISABLE_HTTP
+  Curl_dyn_init(&data->req.ul.trailers_buf, DYN_TRAILERS);
+#endif
   return CURLE_OK;
 }
 

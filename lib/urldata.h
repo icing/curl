@@ -1124,14 +1124,6 @@ typedef enum {
 } expire_id;
 
 
-typedef enum {
-  TRAILERS_NONE,
-  TRAILERS_INITIALIZED,
-  TRAILERS_SENDING,
-  TRAILERS_DONE
-} trailers_state;
-
-
 /*
  * One instance for each timeout an easy handle can set.
  */
@@ -1252,14 +1244,9 @@ struct UrlState {
   struct curl_slist *resolve; /* set to point to the set.resolve list when
                                  this should be dealt with in pretransfer */
 #ifndef CURL_DISABLE_HTTP
-  size_t trailers_bytes_sent;
-  struct dynbuf trailers_buf; /* a buffer containing the compiled trailing
-                                 headers */
   struct Curl_llist httphdrs; /* received headers */
   struct curl_header headerout; /* for external purposes */
   struct Curl_header_store *prevhead; /* the latest added header */
-  trailers_state trailers_state; /* whether we are sending trailers
-                                    and what stage are we at */
 #endif
 #ifdef USE_HYPER
   bool hconnect;  /* set if a CONNECT request */

@@ -135,15 +135,15 @@ static size_t trailers_read(char *buffer, size_t size, size_t nitems,
                             void *raw)
 {
   struct Curl_easy *data = (struct Curl_easy *)raw;
-  struct dynbuf *trailers_buf = &data->state.trailers_buf;
+  struct dynbuf *trailers_buf = &data->req.ul.trailers_buf;
   size_t bytes_left = Curl_dyn_len(trailers_buf) -
-    data->state.trailers_bytes_sent;
+    data->req.ul.trailers_nwritten;
   size_t to_copy = (size*nitems < bytes_left) ? size*nitems : bytes_left;
   if(to_copy) {
     memcpy(buffer,
-           Curl_dyn_ptr(trailers_buf) + data->state.trailers_bytes_sent,
+           Curl_dyn_ptr(trailers_buf) + data->req.ul.trailers_nwritten,
            to_copy);
-    data->state.trailers_bytes_sent += to_copy;
+    data->req.ul.trailers_nwritten += to_copy;
   }
   return to_copy;
 }
@@ -151,8 +151,8 @@ static size_t trailers_read(char *buffer, size_t size, size_t nitems,
 static size_t trailers_left(void *raw)
 {
   struct Curl_easy *data = (struct Curl_easy *)raw;
-  struct dynbuf *trailers_buf = &data->state.trailers_buf;
-  return Curl_dyn_len(trailers_buf) - data->state.trailers_bytes_sent;
+  struct dynbuf *trailers_buf = &data->req.ul.trailers_buf;
+  return Curl_dyn_len(trailers_buf) - data->req.ul.trailers_nwritten;
 }
 #endif
 
@@ -170,7 +170,7 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data, size_t bytes,
   void *extra_data = NULL;
 
 #ifndef CURL_DISABLE_HTTP
-  if(data->state.trailers_state == TRAILERS_INITIALIZED) {
+  if(data->req.ul.trailers_state == TRAILERS_INITIALIZED) {
     struct curl_slist *trailers = NULL;
     CURLcode result;
     int trailers_ret_code;
@@ -179,16 +179,16 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data, size_t bytes,
        so we compile and store the trailers buffer, then proceed */
     infof(data,
           "Moving trailers state machine from initialized to sending.");
-    data->state.trailers_state = TRAILERS_SENDING;
-    Curl_dyn_init(&data->state.trailers_buf, DYN_TRAILERS);
+    data->req.ul.trailers_state = TRAILERS_SENDING;
+    Curl_dyn_init(&data->req.ul.trailers_buf, DYN_TRAILERS);
 
-    data->state.trailers_bytes_sent = 0;
+    data->req.ul.trailers_nwritten = 0;
     Curl_set_in_callback(data, true);
     trailers_ret_code = data->set.trailer_callback(&trailers,
                                                    data->set.trailer_data);
     Curl_set_in_callback(data, false);
     if(trailers_ret_code == CURL_TRAILERFUNC_OK) {
-      result = Curl_http_compile_trailers(trailers, &data->state.trailers_buf,
+      result = Curl_http_compile_trailers(trailers, &data->req.ul.trailers_buf,
                                           data);
     }
     else {
@@ -197,7 +197,7 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data, size_t bytes,
       result = CURLE_ABORTED_BY_CALLBACK;
     }
     if(result) {
-      Curl_dyn_free(&data->state.trailers_buf);
+      Curl_dyn_free(&data->req.ul.trailers_buf);
       curl_slist_free_all(trailers);
       return result;
     }
@@ -210,13 +210,13 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data, size_t bytes,
   /* if we are transmitting trailing data, we don't need to write
      a chunk size so we skip this */
   if(data->req.ul.chunky &&
-     data->state.trailers_state == TRAILERS_NONE) {
+     data->req.ul.trailers_state == TRAILERS_NONE) {
     /* if chunked Transfer-Encoding */
     buffersize -= (8 + 2 + 2);   /* 32bit hex + CRLF + CRLF */
     data->req.ul.buf += (8 + 2); /* 32bit hex + CRLF */
   }
 
-  if(data->state.trailers_state == TRAILERS_SENDING) {
+  if(data->req.ul.trailers_state == TRAILERS_SENDING) {
     /* if we're here then that means that we already sent the last empty chunk
        but we didn't send a final CR LF, so we sent 0 CR LF. We then start
        pulling trailing data until we have no more at which point we
@@ -308,7 +308,7 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data, size_t bytes,
     }
 
     /* if we're not handling trailing data, proceed as usual */
-    if(data->state.trailers_state != TRAILERS_SENDING) {
+    if(data->req.ul.trailers_state != TRAILERS_SENDING) {
       char hexbuffer[11] = "";
       hexlen = msnprintf(hexbuffer, sizeof(hexbuffer),
                          "%zx%s", nread, endofline_native);
@@ -324,8 +324,8 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data, size_t bytes,
          we have a valid trailer callback */
       if((nread-hexlen) == 0 &&
           data->set.trailer_callback != NULL &&
-          data->state.trailers_state == TRAILERS_NONE) {
-        data->state.trailers_state = TRAILERS_INITIALIZED;
+          data->req.ul.trailers_state == TRAILERS_NONE) {
+        data->req.ul.trailers_state = TRAILERS_INITIALIZED;
       }
       else {
         memcpy(data->req.ul.buf + nread,
@@ -335,10 +335,10 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data, size_t bytes,
       }
     }
 
-    if(data->state.trailers_state == TRAILERS_SENDING &&
+    if(data->req.ul.trailers_state == TRAILERS_SENDING &&
        !trailers_left(data)) {
-      Curl_dyn_free(&data->state.trailers_buf);
-      data->state.trailers_state = TRAILERS_DONE;
+      Curl_dyn_free(&data->req.ul.trailers_buf);
+      data->req.ul.trailers_state = TRAILERS_DONE;
       data->set.trailer_data = NULL;
       data->set.trailer_callback = NULL;
       /* mark the transfer as done */
@@ -347,11 +347,10 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data, size_t bytes,
     }
     else
       if((nread - hexlen) == 0 &&
-         data->state.trailers_state != TRAILERS_INITIALIZED) {
+         data->req.ul.trailers_state != TRAILERS_INITIALIZED) {
         /* mark this as done once this chunk is transferred */
         data->req.ul.done = TRUE;
-        infof(data,
-              "Signaling end of chunked upload via terminating chunk.");
+        infof(data, "Signaling end of chunked upload via terminating chunk.");
       }
 
     if(added_crlf)

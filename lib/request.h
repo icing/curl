@@ -58,6 +58,14 @@ enum badheader {
                                * written as body */
 };
 
+typedef enum {
+  TRAILERS_NONE,
+  TRAILERS_INITIALIZED,
+  TRAILERS_SENDING,
+  TRAILERS_DONE
+} trailers_state;
+
+
 /**
  * Information for a specific Request-Response pair.
  *
@@ -114,6 +122,13 @@ struct Curl_upload {
                               header and not body */
   char *buf;              /* data available for upload */
   ssize_t buf_len;        /* how much data is available in `buf` */
+#ifndef CURL_DISABLE_HTTP
+  struct dynbuf trailers_buf; /* a buffer containing the compiled trailing
+                                 headers */
+  size_t trailers_nwritten;
+  trailers_state trailers_state; /* whether we are sending trailers and
+                             which state we are at */
+#endif
   BIT(done);              /* set to TRUE when doing chunked transfer-encoding
                              upload and we're uploading the last chunk */
   BIT(forbid_chunk);      /* used only to explicitly forbid chunk-upload for
