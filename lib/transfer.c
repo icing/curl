@@ -160,12 +160,12 @@ static size_t trailers_left(void *raw)
  * This function will call the read callback to fill our buffer with data
  * to upload.
  */
-CURLcode Curl_fillreadbuffer(struct Curl_easy *data, size_t bytes,
+CURLcode Curl_fillreadbuffer(struct Curl_easy *data,
+                             char *buf, size_t bytes,
                              size_t *nreadp)
 {
   size_t buffersize = bytes;
   size_t nread;
-
   curl_read_callback readfunc = NULL;
   void *extra_data = NULL;
 
@@ -213,7 +213,7 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data, size_t bytes,
      data->req.ul.trailers_state == TRAILERS_NONE) {
     /* if chunked Transfer-Encoding */
     buffersize -= (8 + 2 + 2);   /* 32bit hex + CRLF + CRLF */
-    data->req.ul.buf += (8 + 2); /* 32bit hex + CRLF */
+    buf += (8 + 2); /* 32bit hex + CRLF */
   }
 
   if(data->req.ul.trailers_state == TRAILERS_SENDING) {
@@ -234,8 +234,7 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data, size_t bytes,
   }
 
   Curl_set_in_callback(data, true);
-  nread = readfunc(data->req.ul.buf, 1,
-                   buffersize, extra_data);
+  nread = readfunc(buf, 1, buffersize, extra_data);
   Curl_set_in_callback(data, false);
 
   if(nread == CURL_READFUNC_ABORT) {
@@ -256,10 +255,6 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data, size_t bytes,
 
     /* CURL_READFUNC_PAUSE pauses read callbacks that feed socket writes */
     k->keepon |= KEEP_SEND_PAUSE; /* mark socket send as paused */
-    if(data->req.ul.chunky) {
-        /* Back out the preallocation done above */
-      data->req.ul.buf -= (8 + 2);
-    }
     *nreadp = 0;
 
     return CURLE_OK; /* nothing was read */
@@ -313,12 +308,17 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data, size_t bytes,
       hexlen = msnprintf(hexbuffer, sizeof(hexbuffer),
                          "%zx%s", nread, endofline_native);
 
-      /* move buffer pointer */
-      data->req.ul.buf -= hexlen;
-      nread += hexlen;
-
+      /* move buffer back to start */
+      buf -= (8 + 2);
       /* copy the prefix to the buffer, leaving out the NUL */
-      memcpy(data->req.ul.buf, hexbuffer, hexlen);
+      memcpy(buf, hexbuffer, hexlen);
+      /* if prefix is shorter than reserved for, move the data */
+      /* TODO: either we could make better guessing or use a better
+       * dynbuf that allows adjusting start offsets */
+      if(hexlen < (8 + 2)) {
+        memmove(buf + hexlen, buf + (8 + 2), nread);
+      }
+      nread += hexlen;
 
       /* always append ASCII CRLF to the data unless
          we have a valid trailer callback */
@@ -328,8 +328,7 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data, size_t bytes,
         data->req.ul.trailers_state = TRAILERS_INITIALIZED;
       }
       else {
-        memcpy(data->req.ul.buf + nread,
-               endofline_network,
+        memcpy(buf + nread, endofline_network,
                strlen(endofline_network));
         added_crlf = TRUE;
       }
@@ -878,10 +877,9 @@ static CURLcode readwrite_upload(struct Curl_easy *data,
             sending_http_headers = FALSE;
         }
 
-        k->ul.buf += offset;
-        result = Curl_fillreadbuffer(data, data->set.upload_buffer_size-offset,
+        result = Curl_fillreadbuffer(data, data->req.ul.buf + offset,
+                                     data->set.upload_buffer_size - offset,
                                      &fillcount);
-        k->ul.buf -= offset;
         if(result)
           return result;
 

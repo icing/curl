@@ -50,7 +50,8 @@ CURLcode Curl_readwrite(struct connectdata *conn,
                         bool *comeback);
 int Curl_single_getsock(struct Curl_easy *data,
                         struct connectdata *conn, curl_socket_t *socks);
-CURLcode Curl_fillreadbuffer(struct Curl_easy *data, size_t bytes,
+CURLcode Curl_fillreadbuffer(struct Curl_easy *data,
+                             char *buf, size_t readbytes,
                              size_t *nreadp);
 CURLcode Curl_retry_request(struct Curl_easy *data, char **url);
 bool Curl_meets_timecondition(struct Curl_easy *data, time_t timeofdoc);

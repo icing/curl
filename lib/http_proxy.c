@@ -363,8 +363,8 @@ static CURLcode send_CONNECT(struct Curl_easy *data,
   if(!ts->nsend) {
     size_t fillcount;
     k->ul.buf = data->state.ulbuf;
-    result = Curl_fillreadbuffer(data, data->set.upload_buffer_size,
-                                 &fillcount);
+    result = Curl_fillreadbuffer(data, k->ul.buf,
+                                 data->set.upload_buffer_size, &fillcount);
     if(result)
       goto out;
     ts->nsend = fillcount;

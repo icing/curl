@@ -720,8 +720,8 @@ static int uploadstreamed(void *userdata, hyper_context *ctx,
     result = CURLE_OK;
   }
   else {
-    result = Curl_fillreadbuffer(data, data->set.upload_buffer_size,
-                                 &fillcount);
+    result = Curl_fillreadbuffer(data, data->req.ul.buf,
+                                 data->set.upload_buffer_size, &fillcount);
   }
   if(result) {
     data->state.hresult = result;
