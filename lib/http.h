@@ -97,9 +97,13 @@ CURLcode Curl_add_custom_headers(struct Curl_easy *data,
                                  void *headers
 #endif
   );
-CURLcode Curl_http_compile_trailers(struct curl_slist *trailers,
-                                    struct dynbuf *buf,
-                                    struct Curl_easy *handle);
+
+/**
+ * Handling of trailers on upload
+ */
+CURLcode Curl_http_ul_trailers_init(struct Curl_easy *data);
+size_t Curl_http_ul_trailers_read(struct Curl_easy *data,
+                                  char *buffer, size_t blen);
 
 void Curl_http_method(struct Curl_easy *data, struct connectdata *conn,
                       const char **method, Curl_HttpReq *);

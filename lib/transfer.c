@@ -126,36 +126,6 @@ CURLcode Curl_get_upload_buffer(struct Curl_easy *data)
   return CURLE_OK;
 }
 
-#ifndef CURL_DISABLE_HTTP
-/*
- * This function will be called to loop through the trailers buffer
- * until no more data is available for sending.
- */
-static size_t trailers_read(char *buffer, size_t size, size_t nitems,
-                            void *raw)
-{
-  struct Curl_easy *data = (struct Curl_easy *)raw;
-  struct dynbuf *trailers_buf = &data->req.ul.trailers_buf;
-  size_t bytes_left = Curl_dyn_len(trailers_buf) -
-    data->req.ul.trailers_nwritten;
-  size_t to_copy = (size*nitems < bytes_left) ? size*nitems : bytes_left;
-  if(to_copy) {
-    memcpy(buffer,
-           Curl_dyn_ptr(trailers_buf) + data->req.ul.trailers_nwritten,
-           to_copy);
-    data->req.ul.trailers_nwritten += to_copy;
-  }
-  return to_copy;
-}
-
-static size_t trailers_left(void *raw)
-{
-  struct Curl_easy *data = (struct Curl_easy *)raw;
-  struct dynbuf *trailers_buf = &data->req.ul.trailers_buf;
-  return Curl_dyn_len(trailers_buf) - data->req.ul.trailers_nwritten;
-}
-#endif
-
 /*
  * This function will call the read callback to fill our buffer with data
  * to upload.
@@ -166,50 +136,11 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data,
 {
   size_t buffersize = bytes;
   size_t nread;
-  curl_read_callback readfunc = NULL;
-  void *extra_data = NULL;
-
-#ifndef CURL_DISABLE_HTTP
-  if(data->req.ul.trailers_state == TRAILERS_INITIALIZED) {
-    struct curl_slist *trailers = NULL;
-    CURLcode result;
-    int trailers_ret_code;
-
-    /* at this point we already verified that the callback exists
-       so we compile and store the trailers buffer, then proceed */
-    infof(data,
-          "Moving trailers state machine from initialized to sending.");
-    data->req.ul.trailers_state = TRAILERS_SENDING;
-    Curl_dyn_init(&data->req.ul.trailers_buf, DYN_TRAILERS);
-
-    data->req.ul.trailers_nwritten = 0;
-    Curl_set_in_callback(data, true);
-    trailers_ret_code = data->set.trailer_callback(&trailers,
-                                                   data->set.trailer_data);
-    Curl_set_in_callback(data, false);
-    if(trailers_ret_code == CURL_TRAILERFUNC_OK) {
-      result = Curl_http_compile_trailers(trailers, &data->req.ul.trailers_buf,
-                                          data);
-    }
-    else {
-      failf(data, "operation aborted by trailing headers callback");
-      *nreadp = 0;
-      result = CURLE_ABORTED_BY_CALLBACK;
-    }
-    if(result) {
-      Curl_dyn_free(&data->req.ul.trailers_buf);
-      curl_slist_free_all(trailers);
-      return result;
-    }
-    infof(data, "Successfully compiled trailers.");
-    curl_slist_free_all(trailers);
-  }
-#endif
 
 #ifndef CURL_DISABLE_HTTP
   /* if we are transmitting trailing data, we don't need to write
      a chunk size so we skip this */
-  if(data->req.ul.chunky &&
+  if(!data->req.ul.forbid_chunk && data->req.ul.chunky &&
      data->req.ul.trailers_state == TRAILERS_NONE) {
     /* if chunked Transfer-Encoding */
     buffersize -= (8 + 2 + 2);   /* 32bit hex + CRLF + CRLF */
@@ -223,19 +154,15 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data,
        simply return to the previous point in the state machine as if
        nothing happened.
        */
-    readfunc = trailers_read;
-    extra_data = (void *)data;
+    nread = Curl_http_ul_trailers_read(data, buf, buffersize);
   }
   else
 #endif
   {
-    readfunc = data->state.fread_func;
-    extra_data = data->state.in;
+    Curl_set_in_callback(data, true);
+    nread = data->state.fread_func(buf, 1, buffersize, data->state.in);
+    Curl_set_in_callback(data, false);
   }
-
-  Curl_set_in_callback(data, true);
-  nread = readfunc(buf, 1, buffersize, extra_data);
-  Curl_set_in_callback(data, false);
 
   if(nread == CURL_READFUNC_ABORT) {
     failf(data, "operation aborted by callback");
@@ -243,8 +170,6 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data,
     return CURLE_ABORTED_BY_CALLBACK;
   }
   if(nread == CURL_READFUNC_PAUSE) {
-    struct SingleRequest *k = &data->req;
-
     if(data->conn->handler->flags & PROTOPT_NONETWORK) {
       /* protocols that work without network cannot be paused. This is
          actually only FILE:// just now, and it can't pause since the transfer
@@ -254,7 +179,7 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data,
     }
 
     /* CURL_READFUNC_PAUSE pauses read callbacks that feed socket writes */
-    k->keepon |= KEEP_SEND_PAUSE; /* mark socket send as paused */
+    data->req.keepon |= KEEP_SEND_PAUSE; /* mark socket send as paused */
     *nreadp = 0;
 
     return CURLE_OK; /* nothing was read */
@@ -267,7 +192,8 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data,
   }
 
 #ifndef CURL_DISABLE_HTTP
-  if(!data->req.ul.forbid_chunk && data->req.ul.chunky) {
+  if(!data->req.ul.forbid_chunk && data->req.ul.chunky
+     && data->req.ul.trailers_state == TRAILERS_NONE) {
     /* if chunked Transfer-Encoding
      *    build chunk:
      *
@@ -282,11 +208,10 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data,
        CRCRLFs if that's the case.  To do this we use bare LFs
        here, knowing they'll become CRLFs later on.
      */
-
-    bool added_crlf = FALSE;
     int hexlen = 0;
     const char *endofline_native;
     const char *endofline_network;
+    char hexbuffer[11] = "";
 
     if(
 #ifdef CURL_DO_LINEEND_CONV
@@ -302,58 +227,45 @@ CURLcode Curl_fillreadbuffer(struct Curl_easy *data,
       endofline_network = "\x0d\x0a";
     }
 
-    /* if we're not handling trailing data, proceed as usual */
-    if(data->req.ul.trailers_state != TRAILERS_SENDING) {
-      char hexbuffer[11] = "";
-      hexlen = msnprintf(hexbuffer, sizeof(hexbuffer),
-                         "%zx%s", nread, endofline_native);
+    hexlen = msnprintf(hexbuffer, sizeof(hexbuffer),
+                       "%zx%s", nread, endofline_native);
 
-      /* move buffer back to start */
-      buf -= (8 + 2);
-      /* copy the prefix to the buffer, leaving out the NUL */
-      memcpy(buf, hexbuffer, hexlen);
-      /* if prefix is shorter than reserved for, move the data */
-      /* TODO: either we could make better guessing or use a better
-       * dynbuf that allows adjusting start offsets */
-      if(hexlen < (8 + 2)) {
-        memmove(buf + hexlen, buf + (8 + 2), nread);
-      }
-      nread += hexlen;
+    /* move buffer back to start */
+    buf -= (8 + 2);
+    /* copy the prefix to the buffer, leaving out the NUL */
+    memcpy(buf, hexbuffer, hexlen);
+    /* if prefix is shorter than reserved for, move the data */
+    /* TODO: either we could make better guessing or use a better
+     * dynbuf that allows adjusting start offsets */
+    if(nread && hexlen < (8 + 2)) {
+      memmove(buf + hexlen, buf + (8 + 2), nread);
+    }
+    nread += hexlen;
 
-      /* always append ASCII CRLF to the data unless
-         we have a valid trailer callback */
-      if((nread-hexlen) == 0 &&
-          data->set.trailer_callback != NULL &&
-          data->req.ul.trailers_state == TRAILERS_NONE) {
-        data->req.ul.trailers_state = TRAILERS_INITIALIZED;
+    /* always append ASCII CRLF to the data unless
+       we have a valid trailer callback */
+    if((nread-hexlen) == 0) {
+      CURLcode result = Curl_http_ul_trailers_init(data);
+      if(result) {
+        *nreadp = 0;
+        return result;
       }
-      else {
+      /* we are now in TRAILERS_SENDING or TRAILERS_DONE */
+      if(data->req.ul.trailers_state == TRAILERS_DONE) {
         memcpy(buf + nread, endofline_network,
                strlen(endofline_network));
-        added_crlf = TRUE;
-      }
-    }
-
-    if(data->req.ul.trailers_state == TRAILERS_SENDING &&
-       !trailers_left(data)) {
-      Curl_dyn_free(&data->req.ul.trailers_buf);
-      data->req.ul.trailers_state = TRAILERS_DONE;
-      data->set.trailer_data = NULL;
-      data->set.trailer_callback = NULL;
-      /* mark the transfer as done */
-      data->req.ul.done = TRUE;
-      infof(data, "Signaling end of chunked upload after trailers.");
-    }
-    else
-      if((nread - hexlen) == 0 &&
-         data->req.ul.trailers_state != TRAILERS_INITIALIZED) {
+        nread += strlen(endofline_network); /* for the added end of line */
         /* mark this as done once this chunk is transferred */
         data->req.ul.done = TRUE;
-        infof(data, "Signaling end of chunked upload via terminating chunk.");
+        infof(data,
+              "Signaling end of chunked upload via terminating chunk.");
       }
-
-    if(added_crlf)
+    }
+    else {
+      memcpy(buf + nread, endofline_network,
+             strlen(endofline_network));
       nread += strlen(endofline_network); /* for the added end of line */
+    }
   }
 #endif
 

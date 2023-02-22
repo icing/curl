@@ -1671,9 +1671,9 @@ enum proxy_use {
 /* used to compile the provided trailers into one buffer
    will return an error code if one of the headers is
    not formatted correctly */
-CURLcode Curl_http_compile_trailers(struct curl_slist *trailers,
-                                    struct dynbuf *b,
-                                    struct Curl_easy *handle)
+static CURLcode h1_serialize_trailers(struct curl_slist *trailers,
+                                      struct dynbuf *b,
+                                      struct Curl_easy *handle)
 {
   char *ptr = NULL;
   CURLcode result = CURLE_OK;
@@ -1711,6 +1711,72 @@ CURLcode Curl_http_compile_trailers(struct curl_slist *trailers,
   }
   result = Curl_dyn_add(b, endofline_network);
   return result;
+}
+
+CURLcode Curl_http_ul_trailers_init(struct Curl_easy *data)
+{
+  struct curl_slist *trailers = NULL;
+  CURLcode result;
+  int trailers_ret_code;
+
+  DEBUGASSERT(data->req.ul.trailers_state == TRAILERS_NONE);
+  if(!data->set.trailer_callback) {
+    data->req.ul.trailers_state = TRAILERS_DONE;
+    return CURLE_OK;
+  }
+
+  infof(data, "Moving trailers state machine from initialized to sending.");
+  data->req.ul.trailers_state = TRAILERS_SENDING;
+  Curl_dyn_reset(&data->req.ul.trailers_buf);
+
+  data->req.ul.trailers_nwritten = 0;
+  Curl_set_in_callback(data, true);
+  trailers_ret_code = data->set.trailer_callback(&trailers,
+                                                 data->set.trailer_data);
+  Curl_set_in_callback(data, false);
+  if(trailers_ret_code == CURL_TRAILERFUNC_OK) {
+    result = h1_serialize_trailers(trailers, &data->req.ul.trailers_buf,
+                                   data);
+  }
+  else {
+    failf(data, "operation aborted by trailing headers callback");
+    result = CURLE_ABORTED_BY_CALLBACK;
+  }
+  curl_slist_free_all(trailers);
+  if(result) {
+    Curl_dyn_free(&data->req.ul.trailers_buf);
+    return result;
+  }
+  infof(data, "Successfully compiled trailers.");
+  return CURLE_OK;
+}
+
+/*
+ * This function will be called to loop through the trailers buffer
+ * until no more data is available for sending.
+ */
+size_t Curl_http_ul_trailers_read(struct Curl_easy *data,
+                                  char *buffer, size_t blen)
+{
+  struct dynbuf *trailers_buf = &data->req.ul.trailers_buf;
+  size_t bytes_left = Curl_dyn_len(trailers_buf) -
+    data->req.ul.trailers_nwritten;
+  size_t to_copy = (blen < bytes_left) ? blen : bytes_left;
+  if(to_copy) {
+    memcpy(buffer,
+           Curl_dyn_ptr(trailers_buf) + data->req.ul.trailers_nwritten,
+           to_copy);
+    data->req.ul.trailers_nwritten += to_copy;
+    if(Curl_dyn_len(trailers_buf) <= data->req.ul.trailers_nwritten) {
+      /* mark the transfer as done */
+      data->req.ul.trailers_state = TRAILERS_DONE;
+      data->set.trailer_data = NULL;
+      data->set.trailer_callback = NULL;
+      data->req.ul.done = TRUE;
+      infof(data, "Signaling end of chunked upload after trailers.");
+    }
+  }
+  return to_copy;
 }
 
 CURLcode Curl_add_custom_headers(struct Curl_easy *data,
