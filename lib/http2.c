@@ -2237,6 +2237,9 @@ static CURLcode http2_data_pause(struct Curl_cfilter *cf,
     }
     else {
       drain_this(cf, data);
+      /* this transfer needs to run again, as increasing the http/2 window
+       * will not necessarily make the server send anything. */
+      Curl_expire(data, 0, EXPIRE_RUN_NOW);
     }
     /* make sure the window update gets sent */
     result = h2_progress_egress(cf, data);
