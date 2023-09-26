@@ -715,7 +715,6 @@ static CURLcode do_init_stack(struct Curl_easy *data)
 {
   struct Curl_cwriter *writer;
   CURLcode result;
-  struct Curl_cwriter **anchor = &data->req.writer_stack;
 
   DEBUGASSERT(!data->req.writer_stack);
   result = Curl_cwriter_create(&data->req.writer_stack,
