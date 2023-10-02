@@ -832,8 +832,8 @@ static const struct Curl_cwtype identity_encoding = {
 };
 
 
-/* supported content encodings table. */
-static const struct Curl_cwtype * const encodings[] = {
+/* supported general content decoders. */
+static const struct Curl_cwtype * const general_decoders[] = {
   &identity_encoding,
 #ifdef HAVE_LIBZ
   &deflate_encoding,
@@ -848,6 +848,13 @@ static const struct Curl_cwtype * const encodings[] = {
   NULL
 };
 
+/* supported content decoders only for transfer encodings */
+static const struct Curl_cwtype * const transfer_decoders[] = {
+#ifndef CURL_DISABLE_HTTP
+  &Curl_httpchunk_decoder,
+#endif
+  NULL
+};
 
 /* Return a list of comma-separated names of supported encodings. */
 char *Curl_all_content_encodings(void)
@@ -857,7 +864,7 @@ char *Curl_all_content_encodings(void)
   const struct Curl_cwtype *ce;
   char *ace;
 
-  for(cep = encodings; *cep; cep++) {
+  for(cep = general_decoders; *cep; cep++) {
     ce = *cep;
     if(!strcasecompare(ce->name, CONTENT_ENCODING_DEFAULT))
       len += strlen(ce->name) + 2;
@@ -869,7 +876,7 @@ char *Curl_all_content_encodings(void)
   ace = malloc(len);
   if(ace) {
     char *p = ace;
-    for(cep = encodings; *cep; cep++) {
+    for(cep = general_decoders; *cep; cep++) {
       ce = *cep;
       if(!strcasecompare(ce->name, CONTENT_ENCODING_DEFAULT)) {
         strcpy(p, ce->name);
@@ -932,12 +939,23 @@ static const struct Curl_cwtype error_writer = {
 };
 
 /* Find the content encoding by name. */
-static const struct Curl_cwtype *find_encoding(const char *name,
-                                                    size_t len)
+static const struct Curl_cwtype *find_decode_writer(const char *name,
+                                                    size_t len,
+                                                    Curl_cwriter_phase phase)
 {
   const struct Curl_cwtype * const *cep;
 
-  for(cep = encodings; *cep; cep++) {
+  if(phase == CURL_CW_TRANSFER_DECODE) {
+    for(cep = transfer_decoders; *cep; cep++) {
+      const struct Curl_cwtype *ce = *cep;
+      if((strncasecompare(name, ce->name, len) && !ce->name[len]) ||
+         (ce->alias && strncasecompare(name, ce->alias, len)
+                    && !ce->alias[len]))
+        return ce;
+    }
+  }
+  /* look among the general decoders */
+  for(cep = general_decoders; *cep; cep++) {
     const struct Curl_cwtype *ce = *cep;
     if((strncasecompare(name, ce->name, len) && !ce->name[len]) ||
        (ce->alias && strncasecompare(name, ce->alias, len) && !ce->alias[len]))
@@ -951,7 +969,6 @@ static const struct Curl_cwtype *find_encoding(const char *name,
 CURLcode Curl_build_unencoding_stack(struct Curl_easy *data,
                                      const char *enclist, int is_transfer)
 {
-  struct SingleRequest *k = &data->req;
   Curl_cwriter_phase phase = is_transfer?
                              CURL_CW_TRANSFER_DECODE:CURL_CW_CONTENT_DECODE;
   CURLcode result;
@@ -970,16 +987,14 @@ CURLcode Curl_build_unencoding_stack(struct Curl_easy *data,
       if(!ISSPACE(*enclist))
         namelen = enclist - name + 1;
 
-    /* Special case: chunked encoding is handled at the reader level. */
-    if(is_transfer && namelen == 7 && strncasecompare(name, "chunked", 7)) {
-      k->chunk = TRUE;             /* chunks coming our way. */
-      Curl_httpchunk_init(data);   /* init our chunky engine. */
-    }
-    else if(namelen) {
+    if(namelen) {
       const struct Curl_cwtype *cwt;
       struct Curl_cwriter *writer;
 
-      if((is_transfer && !data->set.http_transfer_encoding) ||
+      /* if we skip the deocding in this phase, do not look further.
+       * Exception is "chunked" transfer-encoding which always must happen */
+      if((is_transfer && !data->set.http_transfer_encoding &&
+          (namelen != 7 || !strncasecompare(name, "chunked", 7))) ||
          (!is_transfer && data->set.http_ce_skip)) {
         /* not requested, ignore */
         return CURLE_OK;
@@ -991,7 +1006,7 @@ CURLcode Curl_build_unencoding_stack(struct Curl_easy *data,
         return CURLE_BAD_CONTENT_ENCODING;
       }
 
-      cwt = find_encoding(name, namelen);
+      cwt = find_decode_writer(name, namelen, phase);
       if(!cwt)
         cwt = &error_writer;  /* Defer error at use. */
 

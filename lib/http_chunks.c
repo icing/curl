@@ -86,22 +86,11 @@ void Curl_httpchunk_init(struct Curl_easy *data)
   Curl_dyn_init(&conn->trailer, DYN_H1_TRAILER);
 }
 
-/*
- * chunk_read() returns a OK for normal operations, or a positive return code
- * for errors. STOP means this sequence of chunks is complete.  The 'wrote'
- * argument is set to tell the caller how many bytes we actually passed to the
- * client (for byte-counting and whatever).
- *
- * The states and the state-machine is further explained in the header file.
- *
- * This function always uses ASCII hex values to accommodate non-ASCII hosts.
- * For example, 0x0d and 0x0a are used instead of '\r' and '\n'.
- */
-CHUNKcode Curl_httpchunk_read(struct Curl_easy *data,
-                              char *buf,
-                              size_t blen,
-                              size_t *pconsumed,
-                              CURLcode *extrap)
+static CHUNKcode httpchunk_readwrite(struct Curl_easy *data,
+                                     struct Curl_cwriter *cw_next,
+                                     const char *buf, size_t blen,
+                                     size_t *pconsumed,
+                                     CURLcode *extrap)
 {
   CURLcode result = CURLE_OK;
   struct connectdata *conn = data->conn;
@@ -114,7 +103,10 @@ CHUNKcode Curl_httpchunk_read(struct Curl_easy *data,
   /* the original data is written to the client, but we go on with the
      chunk read process, to properly calculate the content length */
   if(data->set.http_te_skip && !k->ignorebody) {
-    result = Curl_client_write(data, CLIENTWRITE_BODY, buf, blen);
+    if(cw_next)
+      result = Curl_cwriter_write(data, cw_next, CLIENTWRITE_BODY, buf, blen);
+    else
+      result = Curl_client_write(data, CLIENTWRITE_BODY, (char *)buf, blen);
     if(result) {
       *extrap = result;
       return CHUNKE_PASSTHRU_ERROR;
@@ -176,7 +168,12 @@ CHUNKcode Curl_httpchunk_read(struct Curl_easy *data,
 
       /* Write the data portion available */
       if(!data->set.http_te_skip && !k->ignorebody) {
-        result = Curl_client_write(data, CLIENTWRITE_BODY, buf, piece);
+        if(cw_next)
+          result = Curl_cwriter_write(data, cw_next, CLIENTWRITE_BODY,
+                                      buf, piece);
+        else
+          result = Curl_client_write(data, CLIENTWRITE_BODY,
+                                     (char *)buf, piece);
 
         if(result) {
           *extrap = result;
@@ -220,9 +217,16 @@ CHUNKcode Curl_httpchunk_read(struct Curl_easy *data,
           tr = Curl_dyn_ptr(&conn->trailer);
           trlen = Curl_dyn_len(&conn->trailer);
           if(!data->set.http_te_skip) {
-            result = Curl_client_write(data,
-                                       CLIENTWRITE_HEADER|CLIENTWRITE_TRAILER,
-                                       tr, trlen);
+            if(cw_next)
+              result = Curl_cwriter_write(data, cw_next,
+                                          CLIENTWRITE_HEADER|
+                                          CLIENTWRITE_TRAILER,
+                                          tr, trlen);
+            else
+              result = Curl_client_write(data,
+                                         CLIENTWRITE_HEADER|
+                                         CLIENTWRITE_TRAILER,
+                                         tr, trlen);
             if(result) {
               *extrap = result;
               return CHUNKE_PASSTHRU_ERROR;
@@ -313,5 +317,98 @@ const char *Curl_chunked_strerror(CHUNKcode code)
     return "Out of memory";
   }
 }
+
+/*
+ * chunk_read() returns a OK for normal operations, or a positive return code
+ * for errors. STOP means this sequence of chunks is complete.  The 'wrote'
+ * argument is set to tell the caller how many bytes we actually passed to the
+ * client (for byte-counting and whatever).
+ *
+ * The states and the state-machine is further explained in the header file.
+ *
+ * This function always uses ASCII hex values to accommodate non-ASCII hosts.
+ * For example, 0x0d and 0x0a are used instead of '\r' and '\n'.
+ */
+CHUNKcode Curl_httpchunk_read(struct Curl_easy *data,
+                              char *buf,
+                              size_t blen,
+                              size_t *pconsumed,
+                              CURLcode *extrap)
+{
+  return httpchunk_readwrite(data, NULL, buf, blen, pconsumed, extrap);
+}
+
+struct chunked_writer {
+  struct Curl_cwriter super;
+};
+
+static CURLcode cw_chunked_init(struct Curl_easy *data,
+                                struct Curl_cwriter *writer)
+{
+  (void)writer;
+  data->req.chunk = TRUE;      /* chunks coming our way. */
+  Curl_httpchunk_init(data);   /* init our chunky engine. */
+  return CURLE_OK;
+}
+
+static void cw_chunked_close(struct Curl_easy *data,
+                             struct Curl_cwriter *writer)
+{
+  (void)data;
+  (void)writer;
+}
+
+static CURLcode cw_chunked_write(struct Curl_easy *data,
+                                 struct Curl_cwriter *writer, int type,
+                                 const char *buf, size_t blen)
+{
+  CURLcode result;
+  CHUNKcode res;
+  size_t consumed;
+
+  if(!(type & CLIENTWRITE_BODY))
+    return Curl_cwriter_write(data, writer->next, type, buf, blen);
+
+  consumed = 0;
+  res = httpchunk_readwrite(data, writer->next, buf, blen,
+                            &consumed, &result);
+
+  if(CHUNKE_OK < res) {
+    if(CHUNKE_PASSTHRU_ERROR == res) {
+      failf(data, "Failed reading the chunked-encoded stream");
+      return result;
+    }
+    failf(data, "%s in chunked-encoding", Curl_chunked_strerror(res));
+    return CURLE_RECV_ERROR;
+  }
+
+  buf += consumed;
+  blen -= consumed;
+  if(CHUNKE_STOP == res) {
+    /* chunks read successfully, download is complete */
+    data->req.download_done = TRUE;
+    if(blen) {
+      infof(data, "Leftovers after chunking: %zu bytes", blen);
+    }
+  }
+
+  if((type & CLIENTWRITE_EOS) && !(data->req.no_body) &&
+      (data->conn->chunk.state != CHUNK_STOP)) {
+    failf(data, "transfer closed with outstanding read data remaining");
+    return CURLE_PARTIAL_FILE;
+  }
+
+  return CURLE_OK;
+}
+
+/* HTTP chunked Transfer-Encoding decoder */
+const struct Curl_cwtype Curl_httpchunk_decoder = {
+  "chunked",
+  NULL,
+  cw_chunked_init,
+  cw_chunked_write,
+  cw_chunked_close,
+  sizeof(struct chunked_writer)
+};
 
 #endif /* CURL_DISABLE_HTTP */

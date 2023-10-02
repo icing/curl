@@ -24,6 +24,8 @@
  *
  ***************************************************************************/
 
+#ifndef CURL_DISABLE_HTTP
+
 struct connectdata;
 
 /*
@@ -96,5 +98,9 @@ void Curl_httpchunk_init(struct Curl_easy *data);
 CHUNKcode Curl_httpchunk_read(struct Curl_easy *data, char *buf,
                               size_t blen, size_t *pconsumed,
                               CURLcode *passthru);
+
+extern const struct Curl_cwtype Curl_httpchunk_decoder;
+
+#endif /* !CURL_DISABLE_HTTP */
 
 #endif /* HEADER_CURL_HTTP_CHUNKS_H */

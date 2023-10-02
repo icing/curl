@@ -49,6 +49,7 @@
 #define CLIENTWRITE_CONNECT (1<<4) /* a CONNECT related HEADER */
 #define CLIENTWRITE_1XX     (1<<5) /* a 1xx response related HEADER */
 #define CLIENTWRITE_TRAILER (1<<6) /* a trailer HEADER */
+#define CLIENTWRITE_EOS     (1<<7) /* End Of transfer download Stream */
 
 /**
  * Write `len` bytes at `prt` to the client. `type` indicates what

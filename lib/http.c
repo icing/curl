@@ -4003,6 +4003,7 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
   struct SingleRequest *k = &data->req;
   char *headp;
   char *end_ptr;
+  bool leftover_body = FALSE;
 
   /* header line within buffer loop */
   *pconsumed = 0;
@@ -4031,12 +4032,12 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
         if(st == STATUS_BAD) {
           /* this is not the beginning of a protocol first header line */
           k->header = FALSE;
-          k->badheader = TRUE;
           streamclose(conn, "bad HTTP: No end-of-message indicator");
           if(!data->set.http09_allowed) {
             failf(data, "Received HTTP/0.9 when not allowed");
             return CURLE_UNSUPPORTED_PROTOCOL;
           }
+          leftover_body = TRUE;
           goto out;
         }
       }
@@ -4070,15 +4071,8 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
           return CURLE_UNSUPPORTED_PROTOCOL;
         }
         k->header = FALSE;
-        if(blen)
-          /* since there's more, this is a partial bad header */
-          k->badheader = TRUE;
-        else {
-          /* this was all we read so it's all a bad header */
-          k->badheader = TRUE;
-          return CURLE_OK;
-        }
-        break;
+        leftover_body = TRUE;
+        goto out;
       }
     }
 
@@ -4577,6 +4571,15 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
      there might be a non-header part left in the end of the read
      buffer. */
 out:
+  if(!k->header) {
+    if(leftover_body && !data->req.no_body) {
+      result = Curl_client_write(data, CLIENTWRITE_BODY,
+                                 Curl_dyn_ptr(&data->state.headerb),
+                                 Curl_dyn_len(&data->state.headerb));
+    }
+    Curl_dyn_free(&data->state.headerb);
+    return result;
+  }
   return CURLE_OK;
 }
 

@@ -404,10 +404,12 @@ CURLcode Curl_client_write(struct Curl_easy *data,
 #endif
   /* it is one of those, at least */
   DEBUGASSERT(type & (CLIENTWRITE_BODY|CLIENTWRITE_HEADER|CLIENTWRITE_INFO));
-  /* BODY is only BODY */
-  DEBUGASSERT(!(type & CLIENTWRITE_BODY) || (type == CLIENTWRITE_BODY));
-  /* INFO is only INFO */
-  DEBUGASSERT(!(type & CLIENTWRITE_INFO) || (type == CLIENTWRITE_INFO));
+  /* BODY is only BODY (with optional EOS) */
+  DEBUGASSERT(!(type & CLIENTWRITE_BODY) ||
+              ((type & ~(CLIENTWRITE_BODY|CLIENTWRITE_EOS)) == 0));
+  /* INFO is only INFO (with optional EOS) */
+  DEBUGASSERT(!(type & CLIENTWRITE_INFO) ||
+              ((type & ~(CLIENTWRITE_INFO|CLIENTWRITE_EOS)) == 0));
 
   if(!data->req.writer_stack) {
     result = do_init_stack(data);
@@ -477,8 +479,6 @@ CURLcode Curl_cwriter_write(struct Curl_easy *data,
                              struct Curl_cwriter *writer, int type,
                              const char *buf, size_t nbytes)
 {
-  if(!nbytes)
-    return CURLE_OK;
   if(!writer)
     return CURLE_WRITE_ERROR;
   return writer->cwt->do_write(data, writer, type, buf, nbytes);

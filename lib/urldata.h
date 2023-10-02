@@ -707,9 +707,9 @@ struct SingleRequest {
 #endif
   unsigned char writer_stack_depth; /* Unencoding stack depth. */
   BIT(header);        /* incoming data has HTTP header */
-  BIT(badheader);     /* header parsing found sth not a header */
   BIT(content_range); /* set TRUE if Content-Range: was found */
   BIT(download_done); /* set to TRUE when download is complete */
+  BIT(eos_written);   /* iff EOS has been written to client */
   BIT(upload_done);   /* set to TRUE when doing chunked transfer-encoding
                          upload and we're uploading the last chunk */
   BIT(ignorebody);    /* we read a response-body but we ignore it! */
