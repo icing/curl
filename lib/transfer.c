@@ -407,26 +407,6 @@ bool Curl_meets_timecondition(struct Curl_easy *data, time_t timeofdoc)
   return TRUE;
 }
 
-static size_t get_max_body_write_len(struct Curl_easy *data)
-{
-  if(data->req.maxdownload != -1) {
-    /* How much more are we allowed to write? */
-    curl_off_t remain_diff;
-    remain_diff = data->req.maxdownload - data->req.bytecount;
-    if(remain_diff < 0) {
-      /* already written too much! */
-      return 0;
-    }
-    else if(remain_diff > SSIZE_T_MAX) {
-      return SIZE_T_MAX;
-    }
-    else {
-      return (size_t)remain_diff;
-    }
-  }
-  return SIZE_T_MAX;
-}
-
 /*
  * Go ahead and do a read if we have a readable socket or if
  * the stream was rewound (in which case we have data in a
