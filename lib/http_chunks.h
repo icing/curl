@@ -26,6 +26,8 @@
 
 #ifndef CURL_DISABLE_HTTP
 
+#include "dynbuf.h"
+
 struct connectdata;
 
 /*
@@ -69,19 +71,23 @@ typedef enum {
      signalled If this is an empty trailer CHUNKE_STOP will be signalled.
      Otherwise the trailer will be broadcasted via Curl_client_write() and the
      next state will be CHUNK_TRAILER */
-  CHUNK_TRAILER_POSTCR
+  CHUNK_TRAILER_POSTCR,
+
+  /* Successfully de-chunked everything */
+  CHUNK_DONE,
+
+  /* Failed on seeing a bad or not correctly terminated chunk */
+  CHUNK_FAILED
 } ChunkyState;
 
 typedef enum {
-  CHUNKE_STOP = -1,
   CHUNKE_OK = 0,
   CHUNKE_TOO_LONG_HEX = 1,
   CHUNKE_ILLEGAL_HEX,
   CHUNKE_BAD_CHUNK,
   CHUNKE_BAD_ENCODING,
   CHUNKE_OUT_OF_MEMORY,
-  CHUNKE_PASSTHRU_ERROR, /* Curl_httpchunk_read() returns a CURLcode to use */
-  CHUNKE_LAST
+  CHUNKE_PASSTHRU_ERROR /* Curl_httpchunk_read() returns a CURLcode to use */
 } CHUNKcode;
 
 const char *Curl_chunked_strerror(CHUNKcode code);
@@ -89,15 +95,27 @@ const char *Curl_chunked_strerror(CHUNKcode code);
 struct Curl_chunker {
   curl_off_t datasize;
   ChunkyState state;
+  CHUNKcode last_code;
+  struct dynbuf trailer; /* for chunked-encoded trailer */
   unsigned char hexindex;
-  char hexbuffer[ CHUNK_MAXNUM_LEN + 1]; /* +1 for null-terminator */
+  char hexbuffer[CHUNK_MAXNUM_LEN + 1]; /* +1 for null-terminator */
+  BIT(ignore_body); /* never write response body data */
 };
 
 /* The following functions are defined in http_chunks.c */
-void Curl_httpchunk_init(struct Curl_easy *data);
-CHUNKcode Curl_httpchunk_read(struct Curl_easy *data, char *buf,
-                              size_t blen, size_t *pconsumed,
-                              CURLcode *passthru);
+void Curl_httpchunk_init(struct Curl_easy *data, struct Curl_chunker *ch,
+                         bool ignore_body);
+void Curl_httpchunk_free(struct Curl_easy *data, struct Curl_chunker *ch);
+void Curl_httpchunk_reset(struct Curl_easy *data, struct Curl_chunker *ch,
+                          bool ignore_body);
+
+CURLcode Curl_httpchunk_read(struct Curl_easy *data, struct Curl_chunker *ch,
+                             char *buf, size_t blen, size_t *pconsumed);
+
+/**
+ * @return TRUE iff chunked decoded has finished successfully.
+ */
+bool Curl_httpchunk_is_done(struct Curl_easy *data, struct Curl_chunker *ch);
 
 extern const struct Curl_cwtype Curl_httpchunk_decoder;
 

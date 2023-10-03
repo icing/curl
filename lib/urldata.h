@@ -873,11 +873,6 @@ struct ldapconninfo;
 struct connectdata {
   struct Curl_llist_element bundle_node; /* conncache */
 
-  /* chunk is for HTTP chunked encoding, but is in the general connectdata
-     struct only because we can do just about any protocol through an HTTP
-     proxy and an HTTP proxy may in fact respond using chunked encoding */
-  struct Curl_chunker chunk;
-
   curl_closesocket_callback fclosesocket; /* function closing the socket(s) */
   void *closesocket_client;
 
@@ -998,11 +993,6 @@ struct connectdata {
 
   struct negotiatedata negotiate; /* state data for host Negotiate auth */
   struct negotiatedata proxyneg; /* state data for proxy Negotiate auth */
-#endif
-
-#ifndef CURL_DISABLE_HTTP
-  /* for chunked-encoded trailer */
-  struct dynbuf trailer;
 #endif
 
   union {
