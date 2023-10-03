@@ -660,7 +660,8 @@ struct SingleRequest {
   enum expect100 exp100;        /* expect 100 continue state */
   enum upgrade101 upgr101;      /* 101 upgrade state */
 
-  /* Content unencoding stack. See sec 3.5, RFC2616. */
+  /* Client Writer stack, handles trasnfer- and content-encodings, protocol
+   * checks, pausing by client callbacks. */
   struct Curl_cwriter *writer_stack;
   time_t timeofdoc;
   long bodywrites;
@@ -705,7 +706,6 @@ struct SingleRequest {
 #ifndef CURL_DISABLE_COOKIES
   unsigned char setcookies;
 #endif
-  unsigned char writer_stack_depth; /* Unencoding stack depth. */
   BIT(header);        /* incoming data has HTTP header */
   BIT(content_range); /* set TRUE if Content-Range: was found */
   BIT(download_done); /* set to TRUE when download is complete */
