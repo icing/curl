@@ -129,7 +129,7 @@ const struct Curl_handler Curl_handler_http = {
   ZERO_NULL,                            /* domore_getsock */
   ZERO_NULL,                            /* perform_getsock */
   ZERO_NULL,                            /* disconnect */
-  ZERO_NULL,                            /* readwrite */
+  Curl_http_readwrite,                  /* readwrite */
   ZERO_NULL,                            /* connection_check */
   ZERO_NULL,                            /* attach connection */
   PORT_HTTP,                            /* defport */
@@ -154,7 +154,7 @@ const struct Curl_handler Curl_handler_ws = {
   ZERO_NULL,                            /* domore_getsock */
   ZERO_NULL,                            /* perform_getsock */
   Curl_ws_disconnect,                   /* disconnect */
-  ZERO_NULL,                            /* readwrite */
+  Curl_http_readwrite,                  /* readwrite */
   ZERO_NULL,                            /* connection_check */
   ZERO_NULL,                            /* attach connection */
   PORT_HTTP,                            /* defport */
@@ -183,7 +183,7 @@ const struct Curl_handler Curl_handler_https = {
   ZERO_NULL,                            /* domore_getsock */
   ZERO_NULL,                            /* perform_getsock */
   ZERO_NULL,                            /* disconnect */
-  ZERO_NULL,                            /* readwrite */
+  Curl_http_readwrite,                  /* readwrite */
   ZERO_NULL,                            /* connection_check */
   ZERO_NULL,                            /* attach connection */
   PORT_HTTPS,                           /* defport */
@@ -208,7 +208,7 @@ const struct Curl_handler Curl_handler_wss = {
   ZERO_NULL,                            /* domore_getsock */
   ZERO_NULL,                            /* perform_getsock */
   Curl_ws_disconnect,                   /* disconnect */
-  ZERO_NULL,                            /* readwrite */
+  Curl_http_readwrite,                  /* readwrite */
   ZERO_NULL,                            /* connection_check */
   ZERO_NULL,                            /* attach connection */
   PORT_HTTPS,                           /* defport */
@@ -3994,10 +3994,10 @@ CURLcode Curl_bump_headersize(struct Curl_easy *data,
 /*
  * Read any HTTP header lines from the server and pass them to the client app.
  */
-CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
-                                     struct connectdata *conn,
-                                     const char *buf, size_t blen,
-                                     size_t *pconsumed)
+static CURLcode http_rw_headers(struct Curl_easy *data,
+                                struct connectdata *conn,
+                                const char *buf, size_t blen,
+                                size_t *pconsumed)
 {
   CURLcode result;
   struct SingleRequest *k = &data->req;
@@ -4583,6 +4583,32 @@ out:
   return CURLE_OK;
 }
 
+/*
+ * HTTP protocol `readwrite` implementation. Will parse headers
+ * when not done yet and otherwise return without consuming data.
+ */
+CURLcode Curl_http_readwrite(struct Curl_easy *data,
+                             struct connectdata *conn,
+                             const char *buf, size_t blen,
+                             size_t *pconsumed,
+                             bool *done)
+{
+  if(!data->req.header) {
+    *done = FALSE;
+    *pconsumed = 0;
+    return CURLE_OK;
+  }
+  else {
+    CURLcode result;
+
+    result = http_rw_headers(data, conn, buf, blen, pconsumed);
+    if(!result && !data->req.header) {
+      /* we have successfully finished parsing the HEADERs */
+      return Curl_http_firstwrite(data, conn, done);
+    }
+    return result;
+  }
+}
 
 /* Decode HTTP status code string. */
 CURLcode Curl_http_decode_status(int *pstatus, const char *s, size_t len)

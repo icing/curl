@@ -456,7 +456,6 @@ static CURLcode readwrite_data(struct Curl_easy *data,
 
     /* If we are reading BODY data and the connection does NOT handle EOF
      * and we know the size of the BODY data, limit the read amount */
-    /* TODO: is this a relict of HTTP pipelining? */
     if(!k->header && !is_multiplex && k->size != -1) {
       curl_off_t totalleft = k->size - k->bytecount;
       if(totalleft <= 0)
@@ -466,7 +465,6 @@ static CURLcode readwrite_data(struct Curl_easy *data,
     }
 
     if(bytestoread) {
-      /* receive data from the network! */
       ssize_t nread; /* number of bytes read */
       result = Curl_read(data, conn->sockfd, buf, bytestoread, &nread);
       if(CURLE_AGAIN == result) {
@@ -479,13 +477,13 @@ static CURLcode readwrite_data(struct Curl_easy *data,
       blen = (size_t)nread;
     }
     else {
-      /* read nothing but since we wanted nothing we consider this an OK
-         situation to proceed from */
+      /* want nothing - continue as if read nothing. */
       DEBUGF(infof(data, "readwrite_data: we're done"));
     }
 
-    /* We only get a 0-length successful read on EndOfStream */
+    /* We only get a 0-length read on EndOfStream */
     is_eos = (blen == 0);
+
     if(!k->bytecount) {
       Curl_pgrsTime(data, TIMER_STARTTRANSFER);
       if(k->exp100 > EXP100_SEND_DATA)
@@ -494,11 +492,7 @@ static CURLcode readwrite_data(struct Curl_easy *data,
     }
 
     *didwhat |= KEEP_RECV;
-    /* indicates data of zero size, i.e. empty file */
-    /* data->state.buffer is allocated 1 byte larger than
-     * data->set.buffer_size admits. *wink* */
-    /* TODO: we should really not rely on this being 0-terminated, since
-     * the actual data read might contain 0s. */
+    /* data->set.buffer_size is allocated 1 byte larger; *wink* */
     buf[blen] = 0;
 
     if(!blen) {
@@ -515,14 +509,15 @@ static CURLcode readwrite_data(struct Curl_easy *data,
     }
 
     if(conn->handler->readwrite) {
-      bool readmore = FALSE; /* indicates data is incomplete, need more */
+      /* protocol handlers use this to manipulate the connection
+       * data before it gets written as BODY to the client.
+       * Example: HTTP parses request headers and "consumes" them.
+       * The unconsumed buffer bytes (if any) are then BODY. */
       consumed = 0;
       result = conn->handler->readwrite(data, conn, buf, blen,
-                                        &consumed, &readmore);
-      if(result)
+                                        &consumed, done);
+      if(result || *done)
         goto out;
-      if(readmore)
-        break;
       buf += consumed;
       blen -= consumed;
       if(k->download_done) {
@@ -541,54 +536,13 @@ static CURLcode readwrite_data(struct Curl_easy *data,
       }
     }
 
-#ifndef CURL_DISABLE_HTTP
-    /* Since this is a two-state thing, we check if we are parsing
-       headers at the moment or not. */
-    if(k->header) {
-      consumed = 0;
-      result = Curl_http_readwrite_headers(data, conn, buf, blen, &consumed);
-      if(result)
-        goto out;
-      buf += consumed;
-      blen -= consumed;
-
-      if(conn->handler->readwrite &&
-         (k->maxdownload <= 0 && blen > 0)) {
-        bool readmore = FALSE; /* indicates data is incomplete, need more */
-        consumed = 0;
-        result = conn->handler->readwrite(data, conn, buf, blen,
-                                           &consumed, &readmore);
-        if(result)
-          goto out;
-        if(readmore)
-          break;
-        buf += consumed;
-        blen -= consumed;
-      }
-
-      if(k->download_done) {
-        /* We've stopped dealing with input, get out of the do-while loop */
-        if(blen > 0) {
-          infof(data,
-                "Excess found:"
-                " excess = %zu"
-                " url = %s (zero-length body)",
-                blen, data->state.up.path);
-        }
-
-        /* we make sure that this socket isn't read more now */
-        k->keepon &= ~KEEP_RECV;
-        break;
-      }
-
-    }
-#endif /* CURL_DISABLE_HTTP */
-
-
-    /* This is not an 'else if' since it may be a rest from the header
-       parsing, where the beginning of the buffer is headers and the end
-       is non-headers. */
-    if(!k->header) {
+    /* There is either BODY data to be written to the client OR
+     * we have seen an EOS from the connection but not told the client
+     * writers yet.
+     * Writing an EOS is important as it lets writers report mistakes
+     * if a BODY is finished too early. Example: HTTP's chunked decoder
+     * checks if it has indeed seen the last, terminating chunk. */
+    if(blen || is_eos) {
       int cwtype = CLIENTWRITE_BODY;
       if(is_eos) {
         cwtype |= CLIENTWRITE_EOS;
@@ -605,46 +559,29 @@ static CURLcode readwrite_data(struct Curl_easy *data,
         goto out;
       }
 
-#ifndef CURL_DISABLE_HTTP
-      if(0 == k->bodywrites && !is_eos) {
-        /* These checks are only made the first time we are about to
-           write a piece of the body */
-        if(conn->handler->protocol&(PROTO_FAMILY_HTTP|CURLPROTO_RTSP)) {
-          /* HTTP-only checks */
-          result = Curl_http_firstwrite(data, conn, done);
-          if(result || *done)
-            goto out;
-        }
-      } /* this is the first time we write a body part */
-#endif /* CURL_DISABLE_HTTP */
-
       max_recv -= blen;
-
-      if((blen || is_eos)) {
 #ifndef CURL_DISABLE_POP3
-        if(blen && conn->handler->protocol & PROTO_FAMILY_POP3) {
-          result = k->ignorebody? CURLE_OK :
-                   Curl_pop3_write(data, buf, blen);
-        }
-        else
-#endif /* CURL_DISABLE_POP3 */
-          result = Curl_client_write(data, cwtype, buf, blen);
-        if(result)
-          goto out;
+      if(blen && conn->handler->protocol & PROTO_FAMILY_POP3) {
+        result = k->ignorebody? CURLE_OK :
+                 Curl_pop3_write(data, buf, blen);
       }
-    } /* if(!header and data to read) */
+      else
+#endif /* CURL_DISABLE_POP3 */
+        result = Curl_client_write(data, cwtype, buf, blen);
+      if(result)
+        goto out;
+    }
 
+    /* If we wrote the EOS, we are definitely done */
     if(is_eos) {
-      /* we are done with the download stream */
       k->download_done = TRUE;
     }
-
+    /* And if we are done, we stop receiving */
     if(k->download_done) {
-      k->keepon &= ~KEEP_RECV; /* we're done reading */
+      k->keepon &= ~KEEP_RECV;
     }
-
+    /* And if we are not PAUSEd or stopped receiving, we leave the loop */
     if((k->keepon & KEEP_RECV_PAUSE) || !(k->keepon & KEEP_RECV)) {
-      /* this is a paused or stopped transfer */
       break;
     }
 

@@ -590,172 +590,6 @@ static CURLcode rtsp_do(struct Curl_easy *data, bool *done)
   return result;
 }
 
-static CURLcode rtsp_filter_rtp(struct Curl_easy *data,
-                                     struct connectdata *conn,
-                                     const char *buf,
-                                     size_t blen,
-                                     bool in_body,
-                                     size_t *pconsumed)
-{
-  struct rtsp_conn *rtspc = &(conn->proto.rtspc);
-  CURLcode result = CURLE_OK;
-
-  *pconsumed = 0;
-  while(blen) {
-    switch(rtspc->state) {
-
-    case RTP_PARSE_SKIP: {
-      DEBUGASSERT(Curl_dyn_len(&rtspc->buf) == 0);
-      if(in_body && buf[0] != '$') {
-        /* in BODY and no valid start, do not consume and return */
-        goto out;
-      }
-      while(blen && buf[0] != '$') {
-        if(!in_body && buf[0] == 'R' &&
-           data->set.rtspreq != RTSPREQ_RECEIVE) {
-          if(strncmp(buf, "RTSP/", (blen < 5) ? blen : 5) == 0) {
-            /* This could be the next response, no consume and return */
-            if(*pconsumed) {
-              DEBUGF(infof(data, "RTP rtsp_filter_rtp[SKIP] RTSP/ prefix, "
-                           "skipping %zd bytes of junk", *pconsumed));
-            }
-            rtspc->state = RTP_PARSE_SKIP;
-            rtspc->in_header = TRUE;
-            goto out;
-          }
-        }
-        /* junk, consume without buffering */
-        *pconsumed += 1;
-        ++buf;
-        --blen;
-      }
-      if(blen && buf[0] == '$') {
-        /* possible start of an RTP message, buffer */
-        if(Curl_dyn_addn(&rtspc->buf, buf, 1)) {
-          result = CURLE_OUT_OF_MEMORY;
-          goto out;
-        }
-        *pconsumed += 1;
-        ++buf;
-        --blen;
-        rtspc->state = RTP_PARSE_CHANNEL;
-      }
-      break;
-    }
-
-    case RTP_PARSE_CHANNEL: {
-      int idx = ((unsigned char)buf[0]) / 8;
-      int off = ((unsigned char)buf[0]) % 8;
-      DEBUGASSERT(Curl_dyn_len(&rtspc->buf) == 1);
-      if(!(data->state.rtp_channel_mask[idx] & (1 << off))) {
-        /* invalid channel number, junk or BODY data */
-        rtspc->state = RTP_PARSE_SKIP;
-        if(in_body) {
-          /* we do not consume this byte, it is BODY data */
-          DEBUGF(infof(data, "RTSP: invalid RTP channel %d in BODY, "
-                       "treating as BODY data", idx));
-          if(*pconsumed == 0) {
-            /* We did not consume the initial '$' in our buffer, but had
-             * it from an earlier call. We cannot un-consume it and have
-             * to write it directly as BODY data */
-            result = Curl_client_write(data, CLIENTWRITE_BODY,
-                                       Curl_dyn_ptr(&rtspc->buf), 1);
-            Curl_dyn_free(&rtspc->buf);
-            if(result)
-              goto out;
-          }
-          else {
-            /* un-consume the '$' and leave */
-            Curl_dyn_free(&rtspc->buf);
-            *pconsumed -= 1;
-            --buf;
-            ++blen;
-            goto out;
-          }
-        }
-        else {
-          /* not BODY, forget the junk '$'. Do not consume this byte,
-           * it might be a start */
-          infof(data, "RTSP: invalid RTP channel %d, skipping", idx);
-          Curl_dyn_free(&rtspc->buf);
-        }
-        break;
-      }
-      /* a valid channel, so we expect this to be a real RTP message */
-      rtspc->rtp_channel = (unsigned char)buf[0];
-      if(Curl_dyn_addn(&rtspc->buf, buf, 1)) {
-        result = CURLE_OUT_OF_MEMORY;
-        goto out;
-      }
-      *pconsumed += 1;
-      ++buf;
-      --blen;
-      rtspc->state = RTP_PARSE_LEN;
-      break;
-    }
-
-    case RTP_PARSE_LEN: {
-      size_t rtp_len = Curl_dyn_len(&rtspc->buf);
-      const char *rtp_buf;
-      DEBUGASSERT(rtp_len >= 2 && rtp_len < 4);
-      if(Curl_dyn_addn(&rtspc->buf, buf, 1)) {
-        result = CURLE_OUT_OF_MEMORY;
-        goto out;
-      }
-      *pconsumed += 1;
-      ++buf;
-      --blen;
-      if(rtp_len == 2)
-        break;
-      rtp_buf = Curl_dyn_ptr(&rtspc->buf);
-      rtspc->rtp_len = RTP_PKT_LENGTH(rtp_buf) + 4;
-      rtspc->state = RTP_PARSE_DATA;
-      break;
-    }
-
-    case RTP_PARSE_DATA: {
-      size_t rtp_len = Curl_dyn_len(&rtspc->buf);
-      size_t needed;
-      DEBUGASSERT(rtp_len < rtspc->rtp_len);
-      needed = rtspc->rtp_len - rtp_len;
-      if(needed <= blen) {
-        if(Curl_dyn_addn(&rtspc->buf, buf, needed)) {
-          result = CURLE_OUT_OF_MEMORY;
-          goto out;
-        }
-        *pconsumed += needed;
-        buf += needed;
-        blen -= needed;
-        /* complete RTP message in buffer */
-        DEBUGF(infof(data, "RTP write channel %d rtp_len %zu",
-                     rtspc->rtp_channel, rtspc->rtp_len));
-        result = rtp_client_write(data, Curl_dyn_ptr(&rtspc->buf),
-                                  rtspc->rtp_len);
-        Curl_dyn_free(&rtspc->buf);
-        rtspc->state = RTP_PARSE_SKIP;
-        if(result)
-          goto out;
-      }
-      else {
-        if(Curl_dyn_addn(&rtspc->buf, buf, blen)) {
-          result = CURLE_OUT_OF_MEMORY;
-          goto out;
-        }
-        *pconsumed += blen;
-        buf += blen;
-        blen = 0;
-      }
-      break;
-    }
-
-    default:
-      DEBUGASSERT(0);
-      return CURLE_RECV_ERROR;
-    }
-  }
-out:
-  return result;
-}
 
 static CURLcode rtsp_rtp_readwrite(struct Curl_easy *data,
                                    struct connectdata *conn,
@@ -764,75 +598,161 @@ static CURLcode rtsp_rtp_readwrite(struct Curl_easy *data,
                                    size_t *pconsumed,
                                    bool *readmore)
 {
+  struct SingleRequest *k = &data->req;
   struct rtsp_conn *rtspc = &(conn->proto.rtspc);
-  CURLcode result = CURLE_OK;
-  size_t consumed = 0;
-  bool in_body;
+  unsigned char *rtp_channel_mask = data->state.rtp_channel_mask;
 
-  if(!data->req.header)
-    rtspc->in_header = FALSE;
-  in_body = (data->req.headerline && !rtspc->in_header) &&
-            (data->req.size >= 0) &&
-            (data->req.bytecount < data->req.size);
+  const char *rtp; /* moving pointer to rtp data */
+  size_t rtp_dataleft; /* how much data left to parse in this round */
+  CURLcode result;
+  bool interleaved = false, invalid_channel_bytes = FALSE;
+  size_t skip_size = 0, rtp_len_before = Curl_dyn_len(&rtspc->buf);
 
-  *readmore = FALSE;
+  if(rtp_len_before) {
+    /* There was some leftover data the last time. Append buf */
+    if(Curl_dyn_addn(&rtspc->buf, buf, blen))
+      return CURLE_OUT_OF_MEMORY;
+    rtp = Curl_dyn_ptr(&rtspc->buf);
+    rtp_dataleft = Curl_dyn_len(&rtspc->buf);
+  }
+  else {
+    /* Just parse the request buffer directly */
+    rtp = buf;
+    rtp_dataleft = blen;
+  }
+
   *pconsumed = 0;
-  if(!blen) {
-    goto out;
-  }
+  *readmore = FALSE;
+  while(rtp_dataleft > 0) {
+    if(rtp[0] == '$') {
+      if(rtp_dataleft > 4) {
+        unsigned char rtp_channel;
+        size_t rtp_length;
+        int idx;
+        int off;
 
-  /* If header parsing is not onging, extract RTP messsages */
-  if(!rtspc->in_header) {
-    result = rtsp_filter_rtp(data, conn, buf, blen, in_body, &consumed);
-    if(result)
-      goto out;
-    *pconsumed += consumed;
-    buf += consumed;
-    blen -= consumed;
-  }
+        /* Parse the header */
+        /* The channel identifier immediately follows and is 1 byte */
+        rtp_channel = (unsigned char)rtp[1];
+        idx = rtp_channel / 8;
+        off = rtp_channel % 8;
+        if(!(rtp_channel_mask[idx] & (1 << off))) {
+          /* invalid channel number, maybe not an RTP packet */
+          rtp++;
+          rtp_dataleft--;
+          skip_size++;
+          invalid_channel_bytes = TRUE;
+          continue;
+        }
+        if(skip_size > 0) {
+          DEBUGF(infof(data, "Skip the malformed interleaved data %zu "
+                       "bytes", skip_size));
+          *pconsumed += skip_size;
+        }
+        skip_size = 0;
+        rtspc->rtp_channel = rtp_channel;
 
-  /* we want to parse headers, do so */
-  if(data->req.header && blen) {
-    bool stop_reading;
+        /* The length is two bytes */
+        rtp_length = RTP_PKT_LENGTH(rtp);
 
-    rtspc->in_header = TRUE;
-    result = Curl_http_readwrite_headers(data, conn, buf, blen,
-                                         &consumed);
-    if(result)
-      goto out;
+        if(rtp_dataleft < rtp_length + 4) {
+          /* Need more - incomplete payload */
+          *readmore = TRUE;
+          break;
+        }
+        interleaved = true;
+        /* We have the full RTP interleaved packet
+         * Write out the header including the leading '$' */
+        DEBUGF(infof(data, "RTP write channel %d rtp_length %zu",
+                     rtspc->rtp_channel, rtp_length));
+        result = rtp_client_write(data, &rtp[0], rtp_length + 4);
+        if(result) {
+          return result;
+        }
 
-    *pconsumed += consumed;
-    buf += consumed;
-    blen -= consumed;
+        /* Move forward in the buffer */
+        rtp_dataleft -= rtp_length + 4;
+        rtp += rtp_length + 4;
+        *pconsumed += rtp_length + 4;
+        invalid_channel_bytes = FALSE;
 
-    if(!data->req.header)
-      rtspc->in_header = FALSE;
-
-    if(!rtspc->in_header) {
-      /* If header parsing is done and data left, extract RTP messages */
-      in_body = (data->req.headerline && !rtspc->in_header) &&
-                (data->req.size >= 0) &&
-                (data->req.bytecount < data->req.size);
-      result = rtsp_filter_rtp(data, conn, buf, blen, in_body, &consumed);
-      if(result)
-        goto out;
-      *pconsumed += consumed;
-      buf += consumed;
-      blen -= consumed;
+        if(data->set.rtspreq == RTSPREQ_RECEIVE) {
+          /* If we are in a passive receive, give control back
+           * to the app as often as we can.
+           */
+          k->keepon &= ~KEEP_RECV;
+        }
+      }
+      else {
+        /* Need more - incomplete header */
+        *readmore = TRUE;
+        break;
+      }
+    }
+    else {
+      /* If the following data begins with 'RTSP/', which might be an RTSP
+         message, we should stop skipping the data. */
+      /* If `k-> headerline> 0 && !interleaved` is true, we are maybe in the
+         middle of an RTSP message. It is difficult to determine this, so we
+         stop skipping. */
+      size_t prefix_len = (rtp_dataleft < 5) ? rtp_dataleft : 5;
+      if((k->headerline > 0 && !interleaved) ||
+         strncmp(rtp, "RTSP/", prefix_len) == 0) {
+        if(skip_size > 0) {
+          DEBUGF(infof(data, "Skip the malformed interleaved data %zu "
+                       "bytes", skip_size));
+        }
+        break; /* maybe is an RTSP message */
+      }
+      /* Skip incorrect data util the next RTP packet or RTSP message */
+      do {
+        skip_size++;
+        rtp++;
+        rtp_dataleft--;
+      } while(rtp_dataleft > 0 && rtp[0] != '$' && rtp[0] != 'R');
     }
   }
 
-  if(rtspc->state != RTP_PARSE_SKIP)
-    *readmore = TRUE;
+  if(rtp_dataleft && rtp[0] == '$') {
+    DEBUGF(infof(data, "RTP Rewinding %zd %s", rtp_dataleft,
+                 *readmore ? "(READMORE)" : ""));
 
-out:
-  if(!*readmore && data->set.rtspreq == RTSPREQ_RECEIVE) {
-    /* In special mode RECEIVE, we just process one chunk of network
-     * data, so we stop the transfer here, if we have no incomplete
-     * RTP message pending. */
-    data->req.keepon &= ~KEEP_RECV;
+    /* Store the incomplete RTP packet for a "rewind" */
+    if(!Curl_dyn_len(&rtspc->buf)) {
+      /* nothing was stored, add this data */
+      if(Curl_dyn_addn(&rtspc->buf, rtp, rtp_dataleft))
+        return CURLE_OUT_OF_MEMORY;
+    }
+    else {
+      /* keep the remainder */
+      Curl_dyn_tail(&rtspc->buf, rtp_dataleft);
+    }
+
+    /* As far as the transfer is concerned, this data is consumed */
+    *pconsumed = blen;
+    return CURLE_OK;
   }
-  return result;
+
+  /* How much have we consumed?
+   * - the RTP message written out have already been counted
+   * - skips before a valid RTP message have also been counted
+   * The remaining bytes in we *do* consume if we have seen
+   * a RTP '$' message for an invalid channel. */
+  if(invalid_channel_bytes && skip_size) {
+    DEBUGF(infof(data, "Skip RTP data for invalid channel %zu bytes",
+                 skip_size));
+    *pconsumed += skip_size;
+  }
+
+  if(*pconsumed >= rtp_len_before)
+    *pconsumed -= rtp_len_before;
+  else
+    *pconsumed = 0;
+  DEBUGF(infof(data, "RTSP readwrite: leave, %zu/%zu bytes consumed",
+         *pconsumed, blen));
+  Curl_dyn_free(&rtspc->buf);
+
+  return CURLE_OK;
 }
 
 static
