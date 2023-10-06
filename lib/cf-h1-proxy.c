@@ -1003,6 +1003,14 @@ out:
   *done = (result == CURLE_OK) && tunnel_is_established(cf->ctx);
   if(*done) {
     cf->connected = TRUE;
+    /* Restore `data->req` fields that may habe been touched */
+    data->req.header = TRUE; /* assume header */
+    data->req.bytecount = 0;
+    data->req.ignorebody = FALSE;
+    Curl_client_cleanup(data);
+    Curl_pgrsSetUploadCounter(data, 0);
+    Curl_pgrsSetDownloadCounter(data, 0);
+
     tunnel_free(cf, data);
   }
   return result;

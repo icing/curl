@@ -148,6 +148,9 @@ size_t Curl_cwriter_count(struct Curl_easy *data, Curl_cwriter_phase phase);
 CURLcode Curl_cwriter_add(struct Curl_easy *data,
                           struct Curl_cwriter *writer);
 
+void Curl_cwriter_remove_by_name(struct Curl_easy *data,
+                                 const char *name);
+
 /**
  * Convenience method for calling `writer->do_write()` that
  * checks for NULL writer.

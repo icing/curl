@@ -761,6 +761,21 @@ CURLcode Curl_cwriter_add(struct Curl_easy *data,
   return CURLE_OK;
 }
 
+void Curl_cwriter_remove_by_name(struct Curl_easy *data,
+                                 const char *name)
+{
+  struct Curl_cwriter **anchor = &data->req.writer_stack;
+
+  while(*anchor) {
+    if(!strcmp(name, (*anchor)->cwt->name)) {
+      struct Curl_cwriter *w = (*anchor);
+      *anchor = w->next;
+      Curl_cwriter_free(data, w);
+      continue;
+    }
+    anchor = &((*anchor)->next);
+  }
+}
 
 /*
  * Internal read-from-socket function. This is meant to deal with plain
