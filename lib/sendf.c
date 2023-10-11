@@ -597,20 +597,16 @@ static CURLcode cw_download_write(struct Curl_easy *data,
   if(excess_len) {
     if(data->conn->handler->readwrite) {
       /* RTSP hack moved from tranfer loop to here */
-      bool readmore = FALSE; /* indicates data is incomplete, need more */
+      bool done = FALSE;
       size_t consumed = 0;
       result = data->conn->handler->readwrite(data, data->conn,
                                               excess_data, excess_len,
-                                              &consumed, &readmore);
+                                              &consumed, &done);
       if(result)
         return result;
       DEBUGASSERT(consumed <= excess_len);
       excess_data += consumed;
       excess_len -= consumed;
-      if(readmore) {
-        data->req.download_done = FALSE;
-        data->req.keepon |= KEEP_RECV; /* we're not done reading */
-      }
     }
     if(excess_len && !data->req.ignorebody) {
       infof(data,
