@@ -794,7 +794,7 @@ struct Curl_handler {
      allow the protocol to do extra reads/writes */
   CURLcode (*readwrite)(struct Curl_easy *data, struct connectdata *conn,
                         const char *buf, size_t blen,
-                        size_t *pconsumed, bool *done);
+                        bool is_eos, bool *done);
 
   /* This function can perform various checks on the connection. See
      CONNCHECK_* for more information about the checks that can be performed,

@@ -3999,7 +3999,7 @@ static CURLcode http_rw_headers(struct Curl_easy *data,
                                 const char *buf, size_t blen,
                                 size_t *pconsumed)
 {
-  CURLcode result;
+  CURLcode result = CURLE_OK;
   struct SingleRequest *k = &data->req;
   char *headp;
   char *end_ptr;
@@ -4571,14 +4571,8 @@ static CURLcode http_rw_headers(struct Curl_easy *data,
      there might be a non-header part left in the end of the read
      buffer. */
 out:
-  if(!k->header) {
-    if(leftover_body && !data->req.no_body) {
-      result = Curl_client_write(data, CLIENTWRITE_BODY,
-                                 Curl_dyn_ptr(&data->state.headerb),
-                                 Curl_dyn_len(&data->state.headerb));
-    }
+  if(!k->header && !leftover_body) {
     Curl_dyn_free(&data->state.headerb);
-    return result;
   }
   return CURLE_OK;
 }
@@ -4587,11 +4581,11 @@ out:
  * HTTP protocol `readwrite` implementation. Will parse headers
  * when not done yet and otherwise return without consuming data.
  */
-CURLcode Curl_http_readwrite(struct Curl_easy *data,
-                             struct connectdata *conn,
-                             const char *buf, size_t blen,
-                             size_t *pconsumed,
-                             bool *done)
+CURLcode Curl_http_rw_headers(struct Curl_easy *data,
+                              struct connectdata *conn,
+                              const char *buf, size_t blen,
+                              size_t *pconsumed,
+                              bool *done)
 {
   if(!data->req.header) {
     *done = FALSE;
@@ -4604,10 +4598,51 @@ CURLcode Curl_http_readwrite(struct Curl_easy *data,
     result = http_rw_headers(data, conn, buf, blen, pconsumed);
     if(!result && !data->req.header) {
       /* we have successfully finished parsing the HEADERs */
-      return Curl_http_firstwrite(data, conn, done);
+      result = Curl_http_firstwrite(data, conn, done);
+
+      if(!data->req.no_body && Curl_dyn_len(&data->state.headerb)) {
+        /* leftover from parsing somethhing that turned out not
+         * to be a header, only happens if we allow for
+         * HTTP/0.9 like responses */
+        result = Curl_client_write(data, CLIENTWRITE_BODY,
+                                   Curl_dyn_ptr(&data->state.headerb),
+                                   Curl_dyn_len(&data->state.headerb));
+      }
+      Curl_dyn_free(&data->state.headerb);
     }
     return result;
   }
+}
+
+CURLcode Curl_http_readwrite(struct Curl_easy *data,
+                             struct connectdata *conn,
+                             const char *buf, size_t blen,
+                             bool is_eos,
+                             bool *done)
+{
+  CURLcode result;
+  size_t consumed;
+  int flags;
+
+  result = Curl_http_rw_headers(data, conn, buf, blen, &consumed, done);
+  if(result || *done)
+    goto out;
+
+  DEBUGASSERT(consumed <= blen);
+  blen -= consumed;
+  buf += consumed;
+  /* either all was consumed in header parsing, or we have data left
+   * and are done with heders, e.g. it is BODY data */
+  DEBUGASSERT(!blen || !data->req.header);
+  if(!data->req.header && (blen || is_eos)) {
+    /* BODY data after header been parsed, write and consume */
+    flags = CLIENTWRITE_BODY;
+    if(is_eos)
+      flags |= CLIENTWRITE_EOS;
+    result = Curl_client_write(data, flags, (char *)buf, blen);
+  }
+out:
+  return result;
 }
 
 /* Decode HTTP status code string. */

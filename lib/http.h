@@ -225,10 +225,16 @@ struct HTTP {
 
 CURLcode Curl_http_size(struct Curl_easy *data);
 
+CURLcode Curl_http_rw_headers(struct Curl_easy *data,
+                              struct connectdata *conn,
+                              const char *buf, size_t blen,
+                              size_t *pconsumed,
+                              bool *done);
+
 CURLcode Curl_http_readwrite(struct Curl_easy *data,
                              struct connectdata *conn,
                              const char *buf, size_t blen,
-                             size_t *pconsumed,
+                             bool is_eos,
                              bool *done);
 
 /**
