@@ -653,18 +653,16 @@ static CURLcode rtsp_filter_rtp(struct Curl_easy *data,
         --blen;
         ++skip_len;
       }
-      if(!blen || buf[0] == '$') {
-        /* end of junk/BODY bytes. if BODY, flush */
-        if(skip_len) {
-          result = rtp_write_body_junk(data,
-                                       (char *)(buf - skip_len), skip_len);
-          if(result)
-            goto out;
-          skip_len = 0;
-        }
-      }
       if(blen && buf[0] == '$') {
         /* possible start of an RTP message, buffer */
+        if(skip_len) {
+          /* end of junk/BODY bytes, flush */
+          result = rtp_write_body_junk(data,
+                                       (char *)(buf - skip_len), skip_len);
+          skip_len = 0;
+          if(result)
+            goto out;
+        }
         if(Curl_dyn_addn(&rtspc->buf, buf, 1)) {
           result = CURLE_OUT_OF_MEMORY;
           goto out;
@@ -686,14 +684,12 @@ static CURLcode rtsp_filter_rtp(struct Curl_easy *data,
         rtspc->state = RTP_PARSE_SKIP;
         DEBUGASSERT(skip_len == 0);
         /* we do not consume this byte, it is BODY data */
-        DEBUGF(infof(data, "RTSP: invalid RTP channel %d in BODY, "
-                     "treating as BODY data", idx));
+        DEBUGF(infof(data, "RTSP: invalid RTP channel %d, skipping", idx));
         if(*pconsumed == 0) {
           /* We did not consume the initial '$' in our buffer, but had
            * it from an earlier call. We cannot un-consume it and have
            * to write it directly as BODY data */
-          result = Curl_client_write(data, CLIENTWRITE_BODY,
-                                     Curl_dyn_ptr(&rtspc->buf), 1);
+          result = rtp_write_body_junk(data, Curl_dyn_ptr(&rtspc->buf), 1);
           if(result)
             goto out;
         }
@@ -825,8 +821,16 @@ static CURLcode rtsp_rtp_readwrite(struct Curl_easy *data,
     if(!data->req.header)
       rtspc->in_header = FALSE;
 
-    if(!rtspc->in_header && blen) {
-      /* If header parsing is done and data left, extract RTP messages */
+    if(!rtspc->in_header) {
+      /* If header parsing is done, extract interleaved RTP messages */
+        if((data->set.rtspreq == RTSPREQ_DESCRIBE) &&
+           (data->req.size <= -1)) {
+          /* Respect section 4.4 of rfc2326: If the Content-Length header is
+             absent, a length 0 must be assumed.  It will prevent libcurl from
+             hanging on DESCRIBE request that got refused for whatever
+             reason */
+          data->req.download_done = TRUE;
+      }
       result = rtsp_filter_rtp(data, conn, buf, blen, &consumed);
       if(result)
         goto out;
