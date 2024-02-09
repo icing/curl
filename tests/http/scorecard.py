@@ -33,6 +33,8 @@ import sys
 from statistics import mean
 from typing import Dict, Any, Optional, List
 
+import psutil
+
 from testenv import Env, Httpd, Nghttpx, CurlClient, Caddy, ExecResult, NghttpxQuic, RunProfile
 
 log = logging.getLogger(__name__)
@@ -49,13 +51,19 @@ class ScoreCard:
                  nghttpx: Optional[Nghttpx],
                  caddy: Optional[Caddy],
                  verbose: int,
-                 curl_verbose: int):
+                 curl_verbose: int,
+                 single: bool = True,
+                 serial: bool = True,
+                 parallel: bool = True):
         self.verbose = verbose
         self.env = env
         self.httpd = httpd
         self.nghttpx = nghttpx
         self.caddy = caddy
         self._silent_curl = not curl_verbose
+        self._test_single = single
+        self._test_serial = serial
+        self._test_parallel = parallel
 
     def info(self, msg):
         if self.verbose > 0:
@@ -200,14 +208,15 @@ class ScoreCard:
 
     def download_url(self, label: str, url: str, proto: str, count: int):
         self.info(f'  {count}x{label}: ')
-        props = {
-            'single': self.transfer_single(url=url, proto=proto, count=10),
-        }
-        if count > 1:
+        props = {}
+        if self._test_single:
+            props['single'] = self.transfer_single(url=url, proto=proto, count=10),
+        if count > 1 and self._test_serial:
             props['serial'] = self.transfer_serial(url=url, proto=proto,
                                                    count=count)
+        if count > 1 and self._test_parallel:
             props['parallel'] = self.transfer_parallel(url=url, proto=proto,
-                                                       count=count)
+                                                   count=count)
         self.info(f'ok.\n')
         return props
 
@@ -440,7 +449,8 @@ class ScoreCard:
 
             print('Downloads')
             print(f'  {"Server":<8} {"Size":>8}', end='')
-            for m in measures: print(f' {m_names[m]:>{mcol_width}} {"[cpu/rss]":<{mcol_sw}}', end='')
+            mem_key = 'uss' if psutil.LINUX else 'rss'
+            for m in measures: print(f' {m_names[m]:>{mcol_width}} {f"[cpu/{mem_key}]":<{mcol_sw}}', end='')
             print(f' {"Errors":^20}')
 
             for server in score['downloads']:
@@ -455,7 +465,7 @@ class ScoreCard:
                         if m in size_score:
                             print(f' {self.fmt_mbs(size_score[m]["speed"]):>{mcol_width}}', end='')
                             s = f'[{size_score[m]["stats"]["cpu"]:>.1f}%'\
-                                f'/{self.fmt_size(size_score[m]["stats"]["rss"])}]'
+                                f'/{self.fmt_size(size_score[m]["stats"][mem_key])}]'
                             print(f' {s:<{mcol_sw}}', end='')
                         else:
                             print(' '*mcol_width, end='')
@@ -547,6 +557,10 @@ def main():
                         default=False, help="evaluate requests")
     parser.add_argument("--request-count", action='store', type=int,
                         default=5000, help="perform that many requests")
+    parser.add_argument("--parallel", action='store_true', default=False,
+                        help="evaluate parallel tests")
+    parser.add_argument("--serial", action='store_true', default=False,
+                        help="evaluate serial tests")
     parser.add_argument("--httpd", action='store_true', default=False,
                         help="evaluate httpd server only")
     parser.add_argument("--caddy", action='store_true', default=False,
@@ -583,6 +597,14 @@ def main():
         test_caddy = args.caddy
         test_httpd = args.httpd
 
+    test_single = True
+    test_serial = True
+    test_parallel = True
+    if args.parallel or args.serial:
+        test_single = False
+        test_serial = args.serial
+        test_parallel = args.parallel
+
     rv = 0
     env = Env()
     env.setup()
@@ -607,7 +629,9 @@ def main():
             assert caddy.start()
 
         card = ScoreCard(env=env, httpd=httpd, nghttpx=nghttpx, caddy=caddy,
-                         verbose=args.verbose, curl_verbose=args.curl_verbose)
+                         verbose=args.verbose, curl_verbose=args.curl_verbose,
+                         single=test_single, serial=test_serial,
+                         parallel=test_parallel)
         score = card.score_proto(proto=protocol,
                                  handshakes=handshakes,
                                  downloads=downloads,

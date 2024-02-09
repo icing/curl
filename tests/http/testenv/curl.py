@@ -44,7 +44,8 @@ log = logging.getLogger(__name__)
 
 class RunProfile:
 
-    STAT_KEYS = ['cpu', 'rss', 'vsz']
+    STAT_KEYS = ['cpu', 'rss', 'vsz', 'uss'] if psutil.LINUX \
+        else ['cpu', 'rss', 'vsz']
 
     @classmethod
     def AverageStats(cls, profiles: List['RunProfile']):
@@ -76,13 +77,24 @@ class RunProfile:
         try:
             if self._psu is None:
                 self._psu = psutil.Process(pid=self._pid)
-            mem = self._psu.memory_info()
-            self._samples.append({
-                'time': elapsed,
-                'cpu': self._psu.cpu_percent(),
-                'vsz': mem.vms,
-                'rss': mem.rss,
-            })
+            with self._psu.oneshot():
+                if psutil.LINUX:
+                    mem = self._psu.memory_full_info()
+                    self._samples.append({
+                        'time': elapsed,
+                        'cpu': self._psu.cpu_percent(),
+                        'vsz': mem.vms,
+                        'rss': mem.rss,
+                        'uss': mem.uss,
+                    })
+                else:
+                    mem = self._psu.memory_info()
+                    self._samples.append({
+                        'time': elapsed,
+                        'cpu': self._psu.cpu_percent(),
+                        'vsz': mem.vms,
+                        'rss': mem.rss,
+                    })
         except psutil.NoSuchProcess:
             pass
 
