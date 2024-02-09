@@ -210,7 +210,7 @@ class ScoreCard:
         self.info(f'  {count}x{label}: ')
         props = {}
         if self._test_single:
-            props['single'] = self.transfer_single(url=url, proto=proto, count=10),
+            props['single'] = self.transfer_single(url=url, proto=proto, count=10)
         if count > 1 and self._test_serial:
             props['serial'] = self.transfer_serial(url=url, proto=proto,
                                                    count=count)
