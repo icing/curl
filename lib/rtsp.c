@@ -93,7 +93,7 @@ static int rtsp_getsock_do(struct Curl_easy *data, struct connectdata *conn,
 static
 CURLcode rtp_client_write(struct Curl_easy *data, const char *ptr, size_t len);
 static
-CURLcode rtsp_parse_transport(struct Curl_easy *data, char *transport);
+CURLcode rtsp_parse_transport(struct Curl_easy *data, const char *transport);
 
 
 /*
@@ -911,12 +911,12 @@ CURLcode rtp_client_write(struct Curl_easy *data, const char *ptr, size_t len)
   return CURLE_OK;
 }
 
-CURLcode Curl_rtsp_parseheader(struct Curl_easy *data, char *header)
+CURLcode Curl_rtsp_parseheader(struct Curl_easy *data, const char *header)
 {
   if(checkprefix("CSeq:", header)) {
     long CSeq = 0;
     char *endp;
-    char *p = &header[5];
+    const char *p = &header[5];
     while(ISBLANK(*p))
       p++;
     CSeq = strtol(p, &endp, 10);
@@ -931,8 +931,8 @@ CURLcode Curl_rtsp_parseheader(struct Curl_easy *data, char *header)
     }
   }
   else if(checkprefix("Session:", header)) {
-    char *start;
-    char *end;
+    const char *start;
+    const char *end;
     size_t idlen;
 
     /* Find the first non-space letter */
@@ -987,14 +987,14 @@ CURLcode Curl_rtsp_parseheader(struct Curl_easy *data, char *header)
 }
 
 static
-CURLcode rtsp_parse_transport(struct Curl_easy *data, char *transport)
+CURLcode rtsp_parse_transport(struct Curl_easy *data, const char *transport)
 {
   /* If we receive multiple Transport response-headers, the linterleaved
      channels of each response header is recorded and used together for
      subsequent data validity checks.*/
   /* e.g.: ' RTP/AVP/TCP;unicast;interleaved=5-6' */
-  char *start;
-  char *end;
+  const char *start;
+  const char *end;
   start = transport;
   while(start && *start) {
     while(*start && ISBLANK(*start) )
@@ -1003,7 +1003,7 @@ CURLcode rtsp_parse_transport(struct Curl_easy *data, char *transport)
     if(checkprefix("interleaved=", start)) {
       long chan1, chan2, chan;
       char *endp;
-      char *p = start + 12;
+      const char *p = start + 12;
       chan1 = strtol(p, &endp, 10);
       if(p != endp && chan1 >= 0 && chan1 <= 255) {
         unsigned char *rtp_channel_mask = data->state.rtp_channel_mask;

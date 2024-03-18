@@ -2842,9 +2842,9 @@ checkprotoprefix(struct Curl_easy *data, struct connectdata *conn,
 /*
  * Curl_http_header() parses a single response header.
  */
-CURLcode Curl_http_header(struct Curl_easy *data, struct connectdata *conn,
-                          char *hd, size_t hdlen)
+CURLcode Curl_http_header(struct Curl_easy *data, const char *hd, size_t hdlen)
 {
+  struct connectdata *conn = data->conn;
   CURLcode result;
   struct SingleRequest *k = &data->req;
   const char *v;
@@ -2854,7 +2854,7 @@ CURLcode Curl_http_header(struct Curl_easy *data, struct connectdata *conn,
   case 'A':
 #ifndef CURL_DISABLE_ALTSVC
     v = (data->asi &&
-         ((conn->handler->flags & PROTOPT_SSL) ||
+         ((data->conn->handler->flags & PROTOPT_SSL) ||
 #ifdef CURLDEBUG
           /* allow debug builds to circumvent the HTTPS restriction */
           getenv("CURL_ALTSVC_HTTP")
@@ -3312,12 +3312,11 @@ CURLcode Curl_http_size(struct Curl_easy *data)
   return CURLE_OK;
 }
 
-static CURLcode verify_header(struct Curl_easy *data)
+static CURLcode verify_header(struct Curl_easy *data,
+                              const char *hd, size_t hdlen)
 {
   struct SingleRequest *k = &data->req;
-  const char *header = Curl_dyn_ptr(&data->state.headerb);
-  size_t hlen = Curl_dyn_len(&data->state.headerb);
-  char *ptr = memchr(header, 0x00, hlen);
+  char *ptr = memchr(hd, 0x00, hdlen);
   if(ptr) {
     /* this is bad, bail out */
     failf(data, "Nul byte in header");
@@ -3326,11 +3325,11 @@ static CURLcode verify_header(struct Curl_easy *data)
   if(k->headerline < 2)
     /* the first "header" is the status-line and it has no colon */
     return CURLE_OK;
-  if(((header[0] == ' ') || (header[0] == '\t')) && k->headerline > 2)
+  if(((hd[0] == ' ') || (hd[0] == '\t')) && k->headerline > 2)
     /* line folding, can't happen on line 2 */
     ;
   else {
-    ptr = memchr(header, ':', hlen);
+    ptr = memchr(hd, ':', hdlen);
     if(!ptr) {
       /* this is bad, bail out */
       failf(data, "Header without colon");
@@ -3906,11 +3905,11 @@ static CURLcode http_rw_headers(struct Curl_easy *data,
       }
     }
 
-    result = verify_header(data);
+    result = verify_header(data, hd, hdlen);
     if(result)
       return result;
 
-    result = Curl_http_header(data, conn, hd, hdlen);
+    result = Curl_http_header(data, hd, hdlen);
     if(result)
       return result;
 
@@ -4512,5 +4511,146 @@ bool Curl_http_exp100_is_selected(struct Curl_easy *data)
   struct Curl_creader *r = Curl_creader_get_by_type(data, &cr_exp100);
   return r? TRUE : FALSE;
 }
+
+typedef enum {
+  CURL_HTTP_RESP_START,
+  CURL_HTTP_RESP_HEADERS,
+  CURL_HTTP_RESP_BODY,
+  CURL_HTTP_RESP_TRAILERS,
+  CURL_HTTP_RESP_DONE
+} curl_http_resp_st;
+
+/* HTTP protocol writer, processing response headers */
+struct cw_http_ctx {
+  struct Curl_cwriter super;
+  curl_http_resp_st state;
+};
+
+static CURLcode cw_http_status(struct Curl_easy *data,
+                               struct Curl_cwriter *writer, int type,
+                               const char *buf, size_t nbytes)
+{
+  struct cw_http_ctx *ctx = writer->ctx;
+  CURLcode result;
+
+  result = Curl_cwriter_write(data, writer->next, type, buf, nbytes);
+  if(result)
+    return result;
+  ctx->state = CURL_HTTP_RESP_HEADERS;
+  return CURLE_OK;
+}
+
+static CURLcode cw_http_header(struct Curl_easy *data,
+                               struct Curl_cwriter *writer, int type,
+                               const char *buf, size_t blen)
+{
+  struct cw_http_ctx *ctx = writer->ctx;
+  CURLcode result;
+
+  if((blen == 0) ||
+     ((blen == 1) && (buf[0] == '\n')) ||
+     ((blen == 2) && (buf[0] == '\r') && (buf[1] == '\n'))) {
+    ctx->state = (data->req.httpcode >= 200)?
+                 CURL_HTTP_RESP_BODY : CURL_HTTP_RESP_START;
+  }
+  else {
+    if(buf[blen]) {
+      DEBUGASSERT(0);
+      failf(data, "not 0-terminated header line");
+      return CURLE_WRITE_ERROR;
+    }
+    result = verify_header(data, buf, blen);
+    if(!result)
+      result = Curl_http_header(data, buf, blen);
+    if(result)
+      return result;
+  }
+  return Curl_cwriter_write(data, writer->next, type, buf, blen);
+}
+
+static CURLcode cw_http_trailer(struct Curl_easy *data,
+                                struct Curl_cwriter *writer, int type,
+                                const char *buf, size_t blen)
+{
+  struct cw_http_ctx *ctx = writer->ctx;
+  CURLcode result;
+
+  result = Curl_cwriter_write(data, writer->next, type, buf, blen);
+  if(result)
+    return result;
+  if(type & CLIENTWRITE_EOS)
+    ctx->state = CURL_HTTP_RESP_DONE;
+  return CURLE_OK;
+}
+
+/* HTTP client writer in phase CURL_CW_PROTOCOL that
+ * acts on response headers + trailers. */
+static CURLcode cw_http_write(struct Curl_easy *data,
+                              struct Curl_cwriter *writer, int type,
+                              const char *buf, size_t blen)
+{
+  struct cw_http_ctx *ctx = writer->ctx;
+  CURLcode result = CURLE_OK;
+
+  switch(ctx->state) {
+  case CURL_HTTP_RESP_START:
+    DEBUGASSERT(!data->req.headerline);
+    if(type & CLIENTWRITE_HEADER) {
+      if(!(type & CLIENTWRITE_STATUS)) {
+        failf(data, "start of response without STATUS");
+        return CURLE_WEIRD_SERVER_REPLY;
+      }
+      ctx->state = CURL_HTTP_RESP_HEADERS;
+      result = cw_http_status(data, writer, type, buf, blen);
+    }
+    else {
+      /* BODY data before any HEADERS? Does not look right. May that
+       * happen in some weird RTSP situation? */
+      result = Curl_cwriter_write(data, writer->next, type, buf, blen);
+    }
+    break;
+  case CURL_HTTP_RESP_HEADERS:
+    DEBUGASSERT(data->req.headerline);
+    if(!(type & CLIENTWRITE_HEADER)) {
+      failf(data, "BODY data before end of headers");
+      return CURLE_WEIRD_SERVER_REPLY;
+    }
+    result = cw_http_header(data, writer, type, buf, blen);
+    break;
+  case CURL_HTTP_RESP_BODY:
+    if(type & CLIENTWRITE_HEADER) {
+      if(!(type & CLIENTWRITE_TRAILER)) {
+        failf(data, "header after final response without TRAILER flag");
+        return CURLE_WEIRD_SERVER_REPLY;
+      }
+      ctx->state = CURL_HTTP_RESP_TRAILERS;
+      result = cw_http_trailer(data, writer, type, buf, blen);
+    }
+    else {
+      if(type & CLIENTWRITE_EOS)
+        ctx->state = CURL_HTTP_RESP_DONE;
+      result = Curl_cwriter_write(data, writer->next, type, buf, blen);
+    }
+    break;
+  case CURL_HTTP_RESP_TRAILERS:
+    return cw_http_trailer(data, writer, type, buf, blen);
+  case CURL_HTTP_RESP_DONE:
+    if(type & CLIENTWRITE_HEADER) {
+      failf(data, "headers/trailers written after end of response");
+      return CURLE_WEIRD_SERVER_REPLY;
+    }
+    result = Curl_cwriter_write(data, writer->next, type, buf, blen);
+  }
+  return result;
+}
+
+static const struct Curl_cwtype cw_http = {
+  "http",
+  NULL,
+  Curl_cwriter_def_init,
+  cw_http_write,
+  Curl_cwriter_def_close,
+  sizeof(struct cw_http_ctx)
+};
 
 #endif /* CURL_DISABLE_HTTP */
