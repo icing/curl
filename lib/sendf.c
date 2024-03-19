@@ -102,16 +102,7 @@ static void cl_reset_writer(struct Curl_easy *data)
   }
 }
 
-static void cl_reset_reader(struct Curl_easy *data)
-{
-  struct Curl_creader *reader = data->req.reader_stack;
-  while(reader) {
-    data->req.reader_stack = reader->next;
-    reader->crt->do_close(data, reader);
-    free(reader);
-    reader = data->req.reader_stack;
-  }
-}
+static void cl_reset_reader(struct Curl_easy *data);
 
 void Curl_client_cleanup(struct Curl_easy *data)
 {
@@ -1168,17 +1159,27 @@ static const struct Curl_crtype cr_null = {
   sizeof(struct Curl_creader)
 };
 
+static struct Curl_creader cr_null_instance = {
+  &cr_null, NULL, &cr_null_instance, CURL_CR_CLIENT
+};
+
 CURLcode Curl_creader_set_null(struct Curl_easy *data)
 {
-  struct Curl_creader *r;
-  CURLcode result;
-
-  result = Curl_creader_create(&r, data, &cr_null, CURL_CR_CLIENT);
-  if(result)
-    return result;
-
   cl_reset_reader(data);
-  return do_init_reader_stack(data, r);
+  return do_init_reader_stack(data, &cr_null_instance);
+}
+
+static void cl_reset_reader(struct Curl_easy *data)
+{
+  struct Curl_creader *reader = data->req.reader_stack;
+  while(reader) {
+    data->req.reader_stack = reader->next;
+    if(reader != &cr_null_instance) {
+      reader->crt->do_close(data, reader);
+      free(reader);
+    }
+    reader = data->req.reader_stack;
+  }
 }
 
 struct cr_buf_ctx {
