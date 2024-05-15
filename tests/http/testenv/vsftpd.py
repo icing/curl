@@ -134,7 +134,7 @@ class VsFTPD:
         curl = CurlClient(env=self.env, run_dir=self._tmp_dir)
         try_until = datetime.now() + timeout
         while datetime.now() < try_until:
-            check_url = f'{self._scheme}://{self.domain}:{self.env.ftp_port}/'
+            check_url = f'{self._scheme}://{self.domain}:{self.port}/'
             r = curl.ftp_get(urls=[check_url], extra_args=['-v'])
             if r.exit_code != 0:
                 return True
@@ -147,7 +147,7 @@ class VsFTPD:
         curl = CurlClient(env=self.env, run_dir=self._tmp_dir)
         try_until = datetime.now() + timeout
         while datetime.now() < try_until:
-            check_url = f'{self._scheme}://{self.domain}:{self.env.ftp_port}/'
+            check_url = f'{self._scheme}://{self.domain}:{self.port}/'
             r = curl.ftp_get(urls=[check_url], extra_args=[
                 '--trace', 'curl-start.trace', '--trace-time'
             ])
@@ -186,7 +186,7 @@ class VsFTPD:
             f'listen=YES',
             f'run_as_launching_user=YES',
             f'#listen_address=127.0.0.1',
-            f'listen_port={self._port}',
+            f'listen_port={self.port}',
             f'local_enable=NO',
             f'anonymous_enable=YES',
             f'anon_root={self._docs_dir}',
