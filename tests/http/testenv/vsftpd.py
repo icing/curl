@@ -45,14 +45,13 @@ class VsFTPD:
     def __init__(self, env: Env, with_ssl=False):
         self.env = env
         self._cmd = env.vsftpd
+        self._scheme = 'ftp'
         self._with_ssl = with_ssl
         if self._with_ssl:
             self._port = self.env.ftps_port
-            self._scheme = 'ftps'
             name = 'vsftpds'
         else:
             self._port = self.env.ftp_port
-            self._scheme = 'ftp'
             name = 'vsftpd'
         self._vsftpd_dir = os.path.join(env.gen_dir, name)
         self._run_dir = os.path.join(self._vsftpd_dir, 'run')
