@@ -200,6 +200,7 @@ class VsFTPD:
             creds = self.env.get_credentials(self.domain)
             conf.extend([
                 f'ssl_enable=YES',
+                f'allow_anon_ssl=YES',
                 f'rsa_cert_file={creds.cert_file}',
                 f'rsa_private_key_file={creds.pkey_file}',
             ])
