@@ -149,7 +149,7 @@ class VsFTPD:
         while datetime.now() < try_until:
             check_url = f'{self._scheme}://{self.domain}:{self.env.ftp_port}/'
             r = curl.ftp_get(urls=[check_url], extra_args=[
-                '--trace', 'curl.trace', '--trace-time'
+                '--trace', 'curl-start.trace', '--trace-time'
             ])
             if r.exit_code == 0:
                 return True

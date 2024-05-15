@@ -48,8 +48,9 @@ class TestVsFTPD:
             pytest.skip('vsftpd does not support SSL')
         vsftpds = VsFTPD(env=env, with_ssl=True)
         if not vsftpds.start():
-            pytest.skip('vsftpd does not support SSL')
+            vsftpds.stop()
             TestVsFTPD.SUPPORTS_SSL = False
+            pytest.skip('vsftpd does not support SSL')
         yield vsftpds
         vsftpds.stop()
 
