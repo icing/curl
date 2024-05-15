@@ -519,6 +519,33 @@ class CurlClient:
                          with_stats=with_stats,
                          with_headers=with_headers)
 
+    def ftp_get(self, urls: List[str],
+                      with_stats: bool = True,
+                      with_profile: bool = False,
+                      no_save: bool = False,
+                      extra_args: List[str] = None):
+        if extra_args is None:
+            extra_args = []
+        if no_save:
+            extra_args.extend([
+                '-o', '/dev/null',
+            ])
+        else:
+            extra_args.extend([
+                '-o', 'download_#1.data',
+            ])
+        # remove any existing ones
+        for i in range(100):
+            self._rmf(self.download_file(i))
+        if with_stats:
+            extra_args.extend([
+                '-w', '%{json}\\n'
+            ])
+        return self._raw(urls, options=extra_args,
+                         with_stats=with_stats,
+                         with_headers=False,
+                         with_profile=with_profile)
+
     def response_file(self, idx: int):
         return os.path.join(self._run_dir, f'download_{idx}.data')
 

@@ -320,6 +320,16 @@ AS_HELP_STRING([--with-test-caddy=PATH],[where to find caddy for testing]),
 )
 AC_SUBST(CADDY)
 
+VSFTPD=vsftpd
+AC_ARG_WITH(test-vsftpd,dnl
+AS_HELP_STRING([--with-test-vsftpd=PATH],[where to find vsftpd for testing]),
+  VSFTPD=$withval
+  if test X"$OPT_VSFTPD" = "Xno" ; then
+      VSFTPD=""
+  fi
+)
+AC_SUBST(VSFTPD)
+
 dnl we'd like a httpd+apachectl as test server
 dnl
 HTTPD_ENABLED="maybe"
