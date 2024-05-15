@@ -310,7 +310,7 @@ AS_HELP_STRING([--with-test-nghttpx=PATH],[where to find nghttpx for testing]),
 )
 AC_SUBST(TEST_NGHTTPX)
 
-CADDY=caddy
+CADDY=/usr/bin/caddy
 AC_ARG_WITH(test-caddy,dnl
 AS_HELP_STRING([--with-test-caddy=PATH],[where to find caddy for testing]),
   CADDY=$withval
