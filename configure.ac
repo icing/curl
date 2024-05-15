@@ -320,7 +320,7 @@ AS_HELP_STRING([--with-test-caddy=PATH],[where to find caddy for testing]),
 )
 AC_SUBST(CADDY)
 
-VSFTPD=vsftpd
+VSFTPD=/usr/sbin/vsftpd
 AC_ARG_WITH(test-vsftpd,dnl
 AS_HELP_STRING([--with-test-vsftpd=PATH],[where to find vsftpd for testing]),
   VSFTPD=$withval
