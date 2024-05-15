@@ -78,11 +78,14 @@ class EnvConfig:
             'libs': [],
             'lib_versions': [],
         }
+        self.curl_is_debug = False
         self.curl_protos = []
         p = subprocess.run(args=[self.curl, '-V'],
                            capture_output=True, text=True)
         if p.returncode != 0:
             assert False, f'{self.curl} -V failed with exit code: {p.returncode}'
+        if p.stderr.startswith('WARNING:'):
+            self.curl_is_debug = True
         for l in p.stdout.splitlines(keepends=False):
             if l.startswith('curl '):
                 m = re.match(r'^curl (?P<version>\S+) (?P<os>\S+) (?P<libs>.*)$', l)
@@ -339,6 +342,10 @@ class Env:
     @staticmethod
     def curl_version() -> str:
         return Env.CONFIG.curl_props['version']
+
+    @staticmethod
+    def curl_is_debug() -> bool:
+        return Env.CONFIG.curl_is_debug
 
     @staticmethod
     def have_h3() -> bool:
