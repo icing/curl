@@ -172,7 +172,7 @@ class EnvConfig:
                 if p.returncode != 0:
                     # not a working caddy
                     self.caddy = None
-                m = re.match(r'v?(\d+\.\d+\.\d+) .*', p.stdout)
+                m = re.match(r'v?(\d+\.\d+\.\d+).*', p.stdout)
                 if m:
                     self._caddy_version = m.group(1)
                 else:
