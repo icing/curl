@@ -27,7 +27,7 @@
 import ipaddress
 import os
 import re
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 from typing import List, Any, Optional
 
 from cryptography import x509
@@ -316,7 +316,7 @@ class CertStore:
             cert = self.load_pem_cert(cert_file)
             pkey = self.load_pem_pkey(pkey_file)
             try:
-                now = datetime.now(tz=datetime.timezone.utc)
+                now = datetime.now(tz=timezone.utc)
                 if check_valid and \
                     ((cert.not_valid_after_utc < now) or
                      (cert.not_valid_before_utc > now)):
