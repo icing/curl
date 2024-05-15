@@ -43,7 +43,7 @@ class TestVsFTPD:
     SUPPORTS_SSL = True
 
     @pytest.fixture(autouse=True, scope='class')
-    def vsftpds(cls, env):
+    def vsftpds(self, env):
         if not TestVsFTPD.SUPPORTS_SSL:
             pytest.skip('vsftpd does not seem to support SSL')
         vsftpds = VsFTPD(env=env, with_ssl=True)
@@ -78,9 +78,7 @@ class TestVsFTPD:
     def test_31_01_list_dir(self, env: Env, vsftpds: VsFTPD, repeat):
         curl = CurlClient(env=env)
         url = f'ftp://{env.ftp_domain}:{vsftpds.port}/'
-        r = curl.ftp_get(urls=[url], with_stats=True, extra_args=[
-            '--ssl-reqd'
-        ])
+        r = curl.ftp_ssl_get(urls=[url], with_stats=True)
         r.check_stats(count=1, http_status=226)
         lines = open(os.path.join(curl.run_dir, 'download_#1.data')).readlines()
         assert len(lines) == 4, f'list: {lines}'
@@ -94,9 +92,7 @@ class TestVsFTPD:
         srcfile = os.path.join(vsftpds.docs_dir, f'{docname}')
         count = 1
         url = f'ftp://{env.ftp_domain}:{vsftpds.port}/{docname}?[0-{count-1}]'
-        r = curl.ftp_get(urls=[url], with_stats=True, extra_args=[
-            '--ssl-reqd'
-        ])
+        r = curl.ftp_ssl_get(urls=[url], with_stats=True)
         r.check_stats(count=count, http_status=226)
         self.check_downloads(curl, srcfile, count)
 
@@ -108,9 +104,7 @@ class TestVsFTPD:
         srcfile = os.path.join(vsftpds.docs_dir, f'{docname}')
         count = 10
         url = f'ftp://{env.ftp_domain}:{vsftpds.port}/{docname}?[0-{count-1}]'
-        r = curl.ftp_get(urls=[url], with_stats=True, extra_args=[
-            '--ssl-reqd'
-        ])
+        r = curl.ftp_ssl_get(urls=[url], with_stats=True)
         r.check_stats(count=count, http_status=226)
         self.check_downloads(curl, srcfile, count)
 
@@ -122,8 +116,8 @@ class TestVsFTPD:
         srcfile = os.path.join(vsftpds.docs_dir, f'{docname}')
         count = 10
         url = f'ftp://{env.ftp_domain}:{vsftpds.port}/{docname}?[0-{count-1}]'
-        r = curl.ftp_get(urls=[url], with_stats=True, extra_args=[
-            '--ssl-reqd', '--parallel'
+        r = curl.ftp_ssl_get(urls=[url], with_stats=True, extra_args=[
+            '--parallel'
         ])
         r.check_stats(count=count, http_status=226)
         self.check_downloads(curl, srcfile, count)

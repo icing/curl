@@ -546,6 +546,20 @@ class CurlClient:
                          with_headers=False,
                          with_profile=with_profile)
 
+    def ftp_ssl_get(self, urls: List[str],
+                      with_stats: bool = True,
+                      with_profile: bool = False,
+                      no_save: bool = False,
+                      extra_args: List[str] = None):
+        if extra_args is None:
+            extra_args = []
+        extra_args.extend([
+            '--ssl-reqd',
+        ])
+        return self.ftp_get(urls=urls, with_stats=with_stats,
+                            with_profile=with_profile, no_save=no_save,
+                            extra_args=extra_args)
+
     def response_file(self, idx: int):
         return os.path.join(self._run_dir, f'download_{idx}.data')
 
