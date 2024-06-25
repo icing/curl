@@ -1038,11 +1038,16 @@ static int connecting_getsock(struct Curl_easy *data, curl_socket_t *socks)
 static int protocol_getsock(struct Curl_easy *data, curl_socket_t *socks)
 {
   struct connectdata *conn = data->conn;
-  if(conn && conn->handler->proto_getsock)
+  curl_socket_t sockfd;
+
+  if(!conn)
+    return GETSOCK_BLANK;
+  if(conn->handler->proto_getsock)
     return conn->handler->proto_getsock(data, conn, socks);
-  else if(conn && conn->sockfd != CURL_SOCKET_BAD) {
+  sockfd = Curl_conn_get_socket(data, FIRSTSOCKET);
+  if(sockfd != CURL_SOCKET_BAD) {
     /* Default is to wait to something from the server */
-    socks[0] = conn->sockfd;
+    socks[0] = sockfd;
     return GETSOCK_READSOCK(0);
   }
   return GETSOCK_BLANK;
