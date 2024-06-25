@@ -1114,6 +1114,7 @@ static int perform_getsock(struct Curl_easy *data, curl_socket_t *sock)
 static void multi_getsock(struct Curl_easy *data,
                           struct easy_pollset *ps)
 {
+  bool expect_sockets = TRUE;
   /* The no connection case can happen when this is called from
      curl_multi_remove_handle() => singlesocket() => multi_getsock().
   */
@@ -1127,6 +1128,7 @@ static void multi_getsock(struct Curl_easy *data,
   case MSTATE_SETUP:
   case MSTATE_CONNECT:
     /* nothing to poll for yet */
+    expect_sockets = FALSE;
     break;
 
   case MSTATE_RESOLVING:
@@ -1165,18 +1167,25 @@ static void multi_getsock(struct Curl_easy *data,
 
   case MSTATE_RATELIMITING:
     /* we need to let time pass, ignore socket(s) */
+    expect_sockets = FALSE;
     break;
 
   case MSTATE_DONE:
   case MSTATE_COMPLETED:
   case MSTATE_MSGSENT:
     /* nothing more to poll for */
+    expect_sockets = FALSE;
     break;
 
   default:
     failf(data, "multi_getsock: unexpected multi state %d", data->mstate);
     DEBUGASSERT(0);
+    expect_sockets = FALSE;
     break;
+  }
+
+  if(expect_sockets && !ps->num && !Curl_xfer_is_blocked(data)) {
+    infof(data, "WARNING: no socket in pollset, transfer may stall!");
   }
 }
 
