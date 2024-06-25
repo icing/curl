@@ -1024,12 +1024,14 @@ void Curl_attach_connection(struct Curl_easy *data,
 static int connecting_getsock(struct Curl_easy *data, curl_socket_t *socks)
 {
   struct connectdata *conn = data->conn;
-  (void)socks;
-  /* Not using `conn->sockfd` as `Curl_xfer_setup()` initializes
-   * that *after* the connect. */
-  if(conn && conn->sock[FIRSTSOCKET] != CURL_SOCKET_BAD) {
+  curl_socket_t sockfd;
+
+  if(!conn)
+    return GETSOCK_BLANK;
+  sockfd = Curl_conn_get_socket(data, FIRSTSOCKET);
+  if(sockfd != CURL_SOCKET_BAD) {
     /* Default is to wait to something from the server */
-    socks[0] = conn->sock[FIRSTSOCKET];
+    socks[0] = sockfd;
     return GETSOCK_READSOCK(0);
   }
   return GETSOCK_BLANK;
@@ -1056,9 +1058,11 @@ static int protocol_getsock(struct Curl_easy *data, curl_socket_t *socks)
 static int domore_getsock(struct Curl_easy *data, curl_socket_t *socks)
 {
   struct connectdata *conn = data->conn;
-  if(conn && conn->handler->domore_getsock)
+  if(!conn)
+    return GETSOCK_BLANK;
+  if(conn->handler->domore_getsock)
     return conn->handler->domore_getsock(data, conn, socks);
-  else if(conn && conn->sockfd != CURL_SOCKET_BAD) {
+  else if(conn->sockfd != CURL_SOCKET_BAD) {
     /* Default is that we want to send something to the server */
     socks[0] = conn->sockfd;
     return GETSOCK_WRITESOCK(0);
@@ -1069,9 +1073,11 @@ static int domore_getsock(struct Curl_easy *data, curl_socket_t *socks)
 static int doing_getsock(struct Curl_easy *data, curl_socket_t *socks)
 {
   struct connectdata *conn = data->conn;
-  if(conn && conn->handler->doing_getsock)
+  if(!conn)
+    return GETSOCK_BLANK;
+  if(conn->handler->doing_getsock)
     return conn->handler->doing_getsock(data, conn, socks);
-  else if(conn && conn->sockfd != CURL_SOCKET_BAD) {
+  else if(conn->sockfd != CURL_SOCKET_BAD) {
     /* Default is that we want to send something to the server */
     socks[0] = conn->sockfd;
     return GETSOCK_WRITESOCK(0);
@@ -1082,7 +1088,6 @@ static int doing_getsock(struct Curl_easy *data, curl_socket_t *socks)
 static int perform_getsock(struct Curl_easy *data, curl_socket_t *sock)
 {
   struct connectdata *conn = data->conn;
-
   if(!conn)
     return GETSOCK_BLANK;
   else if(conn->handler->perform_getsock)
