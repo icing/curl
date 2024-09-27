@@ -2147,6 +2147,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
           break;
         }
       }
+      /* random change for ci rerun */
 
       if(data->set.connect_only == 1) {
         /* keep connection open for application to use the socket */
