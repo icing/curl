@@ -113,6 +113,7 @@ LIB_CFILES =         \
   asyn-ares.c        \
   asyn-thread.c      \
   base64.c           \
+  bset-uint.c        \
   bufq.c             \
   bufref.c           \
   cf-h1-proxy.c      \
@@ -250,6 +251,7 @@ LIB_HFILES =         \
   amigaos.h          \
   arpa_telnet.h      \
   asyn.h             \
+  bset-uint.h        \
   bufq.h             \
   bufref.h           \
   cf-h1-proxy.h      \
