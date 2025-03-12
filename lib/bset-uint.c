@@ -98,8 +98,6 @@ CURLcode Curl_bset_uint_resize(struct bset_uint *bset, unsigned int nmax)
 {
   unsigned int nslots = (nmax + 63) / 64;
 
-  if(nmax > UINT_MAX)
-    return CURLE_BAD_FUNCTION_ARGUMENT;
   if(nslots != bset->nslots) {
     curl_uint64_t *slots = calloc(nslots, sizeof(curl_uint64_t));
     if(!slots)
@@ -150,10 +148,10 @@ void Curl_bset_uint_clear(struct bset_uint *bset)
 
 bool Curl_bset_uint_add(struct bset_uint *bset, unsigned int i)
 {
-  size_t islot = i / 64;
+  unsigned int islot = i / 64;
   if(islot >= bset->nslots)
     return FALSE;
-  bset->slots[islot] |= (1 << (i % 64));
+  bset->slots[islot] |= ((curl_uint64_t)1 << (i % 64));
   return TRUE;
 }
 
@@ -162,7 +160,7 @@ void Curl_bset_uint_remove(struct bset_uint *bset, unsigned int i)
 {
   size_t islot = i / 64;
   if(islot < bset->nslots)
-    bset->slots[islot] &= ~(1 << (i % 64));
+    bset->slots[islot] &= ~((curl_uint64_t)1 << (i % 64));
 }
 
 
@@ -171,7 +169,7 @@ bool Curl_bset_uint_contains(struct bset_uint *bset, unsigned int i)
   unsigned int islot = i / 64;
   if(islot >= bset->nslots)
     return FALSE;
-  return (bset->slots[islot] & (1 << (i % 64))) != 0;
+  return (bset->slots[islot] & ((curl_uint64_t)1 << (i % 64))) != 0;
 }
 
 
@@ -196,19 +194,20 @@ bool Curl_bset_uint_next(struct bset_uint *bset, unsigned int last,
 
   ++last; /* look for number one higher than last */
   islot = last / 64; /* the slot this would be in */
-  if(islot >= bset->nslots)
-    return FALSE;
-  /* shift aways the bits we already iterated in this slot */
-  x = (bset->slots[islot] >> (last % 64));
-  if(x) {
-    /* more bits set, next is `last` + trailing0s of the shifted slot */
-    return last + bset_uint_trailing0s(x);
-  }
-  /* no more bits set in the last slot, scan forward */
-  for(islot = islot + 1; islot < bset->nslots; ++islot) {
-    if(bset->slots[islot]) {
-      *pnext = (islot * 64) + bset_uint_trailing0s(bset->slots[islot]);
+  if(islot < bset->nslots) {
+    /* shift aways the bits we already iterated in this slot */
+    x = (bset->slots[islot] >> (last % 64));
+    if(x) {
+      /* more bits set, next is `last` + trailing0s of the shifted slot */
+      *pnext = last + bset_uint_trailing0s(x);
       return TRUE;
+    }
+    /* no more bits set in the last slot, scan forward */
+    for(islot = islot + 1; islot < bset->nslots; ++islot) {
+      if(bset->slots[islot]) {
+        *pnext = (islot * 64) + bset_uint_trailing0s(bset->slots[islot]);
+        return TRUE;
+      }
     }
   }
   *pnext = 0; /* give it a value, although it should not be used */
