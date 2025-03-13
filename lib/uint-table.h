@@ -28,14 +28,14 @@
 #include <curl/curl.h>
 
 /* Destructor for a single table entry */
-typedef void Curl_uint_tbl_entry_dtor(void *entry);
+typedef void Curl_uint_tbl_entry_dtor(unsigned int key, void *entry);
 
 struct uint_tbl {
   void **rows;  /* array of void* holding entries */
   Curl_uint_tbl_entry_dtor *entry_dtor;
   unsigned int nrows;  /* length of `rows` array */
   unsigned int nentries; /* entris in table */
-  unsigned int last_add_key; /* last key added */
+  unsigned int last_key_added; /* UINT_MAX or last key added */
 };
 
 /* Initialize a table with an unsigned int as key, that can hold `nmax`
@@ -60,6 +60,9 @@ unsigned int Curl_uint_tbl_count(struct uint_tbl *tbl);
 
 /* Clear the table, making it empty. */
 void Curl_uint_tbl_clear(struct uint_tbl *tbl);
+
+/* Get the entry for key or NULL if not present */
+void *Curl_uint_tbl_get(struct uint_tbl *tbl, unsigned int key);
 
 /* Add a new entry to the table and assign it a free key.
  * Returns FALSE if the table is full.
@@ -90,6 +93,6 @@ bool Curl_uint_tbl_first(struct uint_tbl *tbl,
  * - removed keys lower or equal to 'last_key' will not show up.
  * - removed keys higher than 'last_key' will not be visited. */
 bool Curl_uint_tbl_next(struct uint_tbl *tbl, unsigned int last_key,
-                        unsigned int *pnext_key, void **pentry);
+                        unsigned int *pkey, void **pentry);
 
 #endif /* HEADER_CURL_UINT_TABLE_H */

@@ -109,9 +109,11 @@ CURLcode Curl_uint_bset_resize(struct uint_bset *bset, unsigned int nmax)
     if(!slots)
       return CURLE_OUT_OF_MEMORY;
 
-    memcpy(slots, bset->slots,
-           (CURLMIN(nslots, bset->nslots) * sizeof(curl_uint64_t)));
-    free(bset->slots);
+    if(bset->slots) {
+      memcpy(slots, bset->slots,
+             (CURLMIN(nslots, bset->nslots) * sizeof(curl_uint64_t)));
+      free(bset->slots);
+    }
     bset->slots = slots;
     bset->nslots = nslots;
   }

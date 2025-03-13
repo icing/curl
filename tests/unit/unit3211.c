@@ -142,11 +142,12 @@ static void check_set(const char *name, unsigned int capacity,
 
 static void unit_stop(void)
 {
-  check_set("s1", 100, s1, CURL_ARRAYSIZE(s1));
-  check_set("s2", 1000, s2, CURL_ARRAYSIZE(s2));
 }
 
 
 UNITTEST_START
+
+  check_set("s1", 100, s1, CURL_ARRAYSIZE(s1));
+  check_set("s2", 1000, s2, CURL_ARRAYSIZE(s2));
 
 UNITTEST_STOP
