@@ -31,6 +31,7 @@
 #include "multi_ev.h"
 #include "psl.h"
 #include "socketpair.h"
+#include "uint-table.h"
 
 struct connectdata;
 struct Curl_easy;
@@ -89,6 +90,7 @@ struct Curl_multi {
      this multi handle with an easy handle. Set this to CURL_MULTI_HANDLE. */
   unsigned int magic;
 
+  struct uint_tbl xfers; /* transfers added to this multi */
   unsigned int num_easy; /* amount of entries in the linked list above. */
   unsigned int num_alive; /* amount of easy handles that are added but have
                              not yet reached COMPLETE state */

@@ -1875,7 +1875,7 @@ struct Curl_easy {
   /* once an easy handle is added to a multi, either explicitly by the
    * libcurl application or implicitly during `curl_easy_perform()`,
    * a unique identifier inside this one multi instance. */
-  curl_off_t mid;
+  unsigned int mid;
 
   struct connectdata *conn;
   struct Curl_llist_node multi_queue; /* for multihandle list management */

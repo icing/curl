@@ -525,7 +525,7 @@ CURLcode Curl_open(struct Curl_easy **curl)
     data->state.recent_conn_id = -1;
     /* and not assigned an id yet */
     data->id = -1;
-    data->mid = -1;
+    data->mid = UINT_MAX;
 #ifndef CURL_DISABLE_DOH
     data->set.dohfor_mid = -1;
 #endif

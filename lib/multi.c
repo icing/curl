@@ -58,6 +58,9 @@
 #include "curl_memory.h"
 #include "memdebug.h"
 
+
+#define CURL_XFER_TABLE_SIZE    1000
+
 /*
   CURL_SOCKET_HASH_TABLE_SIZE should be a prime number. Increasing it from 97
   to 911 takes on a 32-bit machine 4 x 804 = 3211 more bytes. Still, every
@@ -103,6 +106,9 @@ static CURLMcode multi_timeout(struct Curl_multi *multi,
                                long *timeout_ms);
 static void process_pending_handles(struct Curl_multi *multi);
 static void multi_xfer_bufs_free(struct Curl_multi *multi);
+#ifdef DEBUGBUILD
+static void multi_xfer_tbl_dump(struct Curl_multi *multi);
+#endif
 
 /* function pointer called once when switching TO a state */
 typedef void (*init_multistate_func)(struct Curl_easy *data);
@@ -209,7 +215,8 @@ static void multi_addmsg(struct Curl_multi *multi, struct Curl_message *msg)
   Curl_llist_append(&multi->msglist, msg, &msg->list);
 }
 
-struct Curl_multi *Curl_multi_handle(size_t ev_hashsize,  /* event hash */
+struct Curl_multi *Curl_multi_handle(unsigned int xfer_table_size,
+                                     size_t ev_hashsize,  /* event hash */
                                      size_t chashsize, /* connection hash */
                                      size_t dnssize,   /* dns hash */
                                      size_t sesssize)  /* TLS session cache */
@@ -220,6 +227,9 @@ struct Curl_multi *Curl_multi_handle(size_t ev_hashsize,  /* event hash */
     return NULL;
 
   multi->magic = CURL_MULTI_HANDLE;
+
+  if(Curl_uint_tbl_init(&multi->xfers, xfer_table_size, NULL))
+    goto error;
 
   Curl_init_dnscache(&multi->hostcache, dnssize);
   Curl_multi_ev_init(multi, ev_hashsize);
@@ -238,6 +248,7 @@ struct Curl_multi *Curl_multi_handle(size_t ev_hashsize,  /* event hash */
   if(getenv("CURL_DEBUG"))
     multi->admin->set.verbose = TRUE;
 #endif
+  Curl_uint_tbl_add(&multi->xfers, multi->admin, &multi->admin->mid);
 
   if(Curl_cshutdn_init(&multi->cshutdn, multi))
     goto error;
@@ -292,7 +303,8 @@ error:
 
 CURLM *curl_multi_init(void)
 {
-  return Curl_multi_handle(CURL_SOCKET_HASH_TABLE_SIZE,
+  return Curl_multi_handle(CURL_XFER_TABLE_SIZE,
+                           CURL_SOCKET_HASH_TABLE_SIZE,
                            CURL_CONNECTION_HASH_SIZE,
                            CURL_DNS_HASH_SIZE,
                            CURL_TLS_SESSION_SIZE);
@@ -349,6 +361,19 @@ CURLMcode curl_multi_add_handle(CURLM *m, CURL *d)
     data->multi_easy = NULL;
   }
 
+  if(!Curl_uint_tbl_add(&multi->xfers, data, &data->mid)) {
+    unsigned int n = Curl_uint_tbl_capacity(&multi->xfers);
+    /* should only happen on a full xfer table */
+    DEBUGASSERT(Curl_uint_tbl_count(&multi->xfers) == n);
+    if(Curl_uint_tbl_resize(&multi->xfers, n + CURL_XFER_TABLE_SIZE))
+      return CURLM_OUT_OF_MEMORY;
+    if(!Curl_uint_tbl_add(&multi->xfers, data, &data->mid)) {
+      /* should never happen */
+      DEBUGASSERT(0);
+      return CURLM_OUT_OF_MEMORY;
+    }
+  }
+
   /* Initialize timeout list for this handle */
   Curl_llist_init(&data->state.timeoutlist, NULL);
 
@@ -378,6 +403,8 @@ CURLMcode curl_multi_add_handle(CURLM *m, CURL *d)
   rc = Curl_update_timer(multi);
   if(rc) {
     data->multi = NULL; /* not anymore */
+    Curl_uint_tbl_remove(&multi->xfers, data->mid);
+    data->mid = UINT_MAX;
     return rc;
   }
 
@@ -408,11 +435,6 @@ CURLMcode curl_multi_add_handle(CURLM *m, CURL *d)
 
   /* increase the alive-counter */
   multi->num_alive++;
-
-  /* the identifier inside the multi instance */
-  data->mid = multi->next_easy_mid++;
-  if(multi->next_easy_mid <= 0)
-    multi->next_easy_mid = 0;
 
   Curl_cpool_xfer_init(data);
   multi_warn_debug(multi, data);
@@ -743,7 +765,8 @@ CURLMcode curl_multi_remove_handle(CURLM *m, CURL *d)
   }
 
   data->multi = NULL; /* clear the association to this multi handle */
-  data->mid = -1;
+  Curl_uint_tbl_remove(&multi->xfers, data->mid);
+  data->mid = UINT_MAX;
 
   /* NOTE NOTE NOTE
      We do not touch the easy handle here! */
@@ -2721,6 +2744,8 @@ CURLMcode curl_multi_cleanup(CURLM *m)
       }
 
       data->multi = NULL; /* clear the association */
+      Curl_uint_tbl_remove(&multi->xfers, data->mid);
+      data->mid = UINT_MAX;
 
 #ifdef USE_LIBPSL
       if(data->psl == &multi->psl)
@@ -2733,6 +2758,7 @@ CURLMcode curl_multi_cleanup(CURLM *m)
     Curl_cshutdn_destroy(&multi->cshutdn, multi->admin);
     if(multi->admin) {
       multi->admin->multi = NULL;
+      Curl_uint_tbl_remove(&multi->xfers, multi->admin->mid);
       Curl_close(&multi->admin);
     }
 
@@ -2756,6 +2782,13 @@ CURLMcode curl_multi_cleanup(CURLM *m)
 #endif
 
     multi_xfer_bufs_free(multi);
+#ifdef DEBUGBUILD
+    if(Curl_uint_tbl_count(&multi->xfers)) {
+      multi_xfer_tbl_dump(multi);
+      DEBUGASSERT(0);
+    }
+#endif
+    Curl_uint_tbl_destroy(&multi->xfers);
     free(multi);
 
     return CURLM_OK;
@@ -3671,30 +3704,42 @@ static void multi_xfer_bufs_free(struct Curl_multi *multi)
 }
 
 struct Curl_easy *Curl_multi_get_handle(struct Curl_multi *multi,
-                                        curl_off_t mid)
+                                        curl_off_t id)
 {
-
-  if(mid >= 0) {
-    struct Curl_easy *data;
-    struct Curl_llist_node *e;
-
-    for(e = Curl_llist_head(&multi->process); e; e = Curl_node_next(e)) {
-      data = Curl_node_elem(e);
-      if(data->mid == mid)
-        return data;
-    }
-    /* may be in msgsent queue */
-    for(e = Curl_llist_head(&multi->msgsent); e; e = Curl_node_next(e)) {
-      data = Curl_node_elem(e);
-      if(data->mid == mid)
-        return data;
-    }
-    /* may be in pending queue */
-    for(e = Curl_llist_head(&multi->pending); e; e = Curl_node_next(e)) {
-      data = Curl_node_elem(e);
-      if(data->mid == mid)
-        return data;
-    }
-  }
-  return NULL;
+  unsigned int mid = (unsigned int)id;
+  return Curl_uint_tbl_get(&multi->xfers, mid);
 }
+
+#ifdef DEBUGBUILD
+static void multi_xfer_dump(struct Curl_multi *multi, unsigned int mid,
+                             void *entry)
+{
+  struct Curl_easy *data = entry;
+
+  (void)multi;
+  if(!data) {
+    fprintf(stderr, "mid=%u, entry=NULL, bug in xfer table?\n", mid);
+  }
+  else {
+    fprintf(stderr, "mid=%u, magic=%s, p=%p, id=%" FMT_OFF_T ", url=%s\n",
+            mid, (data->magic == CURLEASY_MAGIC_NUMBER) ? "GOOD" : "BAD!",
+            (void *)data, data->id, data->state.url);
+  }
+}
+
+static void multi_xfer_tbl_dump(struct Curl_multi *multi)
+{
+  unsigned int mid;
+  void *entry;
+  fprintf(stderr, "=== multi xfer table (count=%u, capacity=%u\n",
+          Curl_uint_tbl_count(&multi->xfers),
+          Curl_uint_tbl_capacity(&multi->xfers));
+  if(Curl_uint_tbl_first(&multi->xfers, &mid, &entry)) {
+    multi_xfer_dump(multi, mid, entry);
+    while(Curl_uint_tbl_next(&multi->xfers, mid, &mid, &entry))
+      multi_xfer_dump(multi, mid, entry);
+  }
+  fprintf(stderr, "===\n");
+  fflush(stderr);
+}
+#endif /* DEBUGBUILD */

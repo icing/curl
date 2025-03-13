@@ -566,7 +566,7 @@ void Curl_multi_ev_xfer_done(struct Curl_multi *multi,
                              struct Curl_easy *data)
 {
   DEBUGASSERT(!data->conn); /* transfer should have been detached */
-  if(data->mid >= 0) {
+  if(data != multi->admin) {
     (void)mev_assess(multi, data, NULL);
     Curl_hash_offt_remove(&multi->ev.xfer_pollsets, data->mid);
   }
