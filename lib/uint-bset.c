@@ -30,9 +30,11 @@
 #include "curl_memory.h"
 #include "memdebug.h"
 
-
 static unsigned int uint_bset_popcount64(curl_uint64_t x)
 {
+#ifdef CURL_POPCOUNT64
+  return (unsigned int)CURL_POPCOUNT64(x);
+#else
   /* Compute the "Hamming Distance" between 'x' and 0,
    * which is the number of set bits in 'x'.
    * See: https://en.wikipedia.org/wiki/Hamming_weight */
@@ -47,11 +49,14 @@ static unsigned int uint_bset_popcount64(curl_uint64_t x)
   /* top 8 bits of x + (x<<8) + (x<<16) + (x<<24) + ... which makes the
    * top byte the sum of all individual 8 bytes, throw away the rest */
   return (unsigned int)((x * h01) >> 56);
+#endif /* else CURL_POPCOUNT64 */
 }
-
 
 static unsigned int uint_bset_trailing0s(curl_uint64_t x)
 {
+#ifdef CURL_CTZ64
+  return x ? (unsigned int)CURL_CTZ64(x) : 32;
+#else
   /* divide and conquer to find the number of lower 0 bits */
   const curl_uint64_t ml32 = 0xFFFFFFFFUL; /* lower 32 bits */
   const curl_uint64_t ml16 = 0x0000FFFFUL; /* lower 16 bits */
@@ -84,6 +89,7 @@ static unsigned int uint_bset_trailing0s(curl_uint64_t x)
     x = x >> 2;
   }
   return n - (x & 1);
+#endif /* else CURL_CTZ64 */
 }
 
 

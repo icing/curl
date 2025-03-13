@@ -1,5 +1,5 @@
-#ifndef HEADER_CURL_BSET_UINT_H
-#define HEADER_CURL_BSET_UINT_H
+#ifndef HEADER_CURL_UINT_BSET_H
+#define HEADER_CURL_UINT_BSET_H
 /***************************************************************************
  *                                  _   _ ____  _
  *  Project                     ___| | | |  _ \| |
@@ -60,7 +60,7 @@ bool Curl_uint_bset_add(struct uint_bset *bset, unsigned int i);
 /* Remove the number `i` from the bitset. */
 void Curl_uint_bset_remove(struct uint_bset *bset, unsigned int i);
 
-/* Return TRUE of the bitset contains number `i`. */
+/* Return TRUE if the bitset contains number `i`. */
 bool Curl_uint_bset_contains(struct uint_bset *bset, unsigned int i);
 
 /* Get the first number in the bitset, e.g. the smallest.
@@ -77,8 +77,8 @@ bool Curl_uint_bset_first(struct uint_bset *bset, unsigned int *pfirst);
  * - added numbers higher than 'last' will be picked up by the iteration.
  * - added numbers lower than 'last' will not show up.
  * - removed numbers lower or equal to 'last' will not show up.
- * - remove numbers higher than 'last' will not be visited. */
+ * - removed numbers higher than 'last' will not be visited. */
 bool Curl_uint_bset_next(struct uint_bset *bset, unsigned int last,
                          unsigned int *pnext);
 
-#endif /* HEADER_CURL_BSET_UINT_H */
+#endif /* HEADER_CURL_UINT_BSET_H */
