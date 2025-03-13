@@ -2,7 +2,7 @@
 <info>
 <keywords>
 unittest
-bset_uint
+uint_bset
 </keywords>
 </info>
 
@@ -16,7 +16,7 @@ none
 unittest
 </features>
 <name>
-bset_uint unit tests
+uint_bset unit tests
 </name>
 </client>
 </testcase>

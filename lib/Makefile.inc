@@ -113,7 +113,6 @@ LIB_CFILES =         \
   asyn-ares.c        \
   asyn-thread.c      \
   base64.c           \
-  bset-uint.c        \
   bufq.c             \
   bufref.c           \
   cf-h1-proxy.c      \
@@ -239,6 +238,7 @@ LIB_CFILES =         \
   timediff.c         \
   timeval.c          \
   transfer.c         \
+  uint-bset.c        \
   url.c              \
   urlapi.c           \
   version.c          \
@@ -251,7 +251,6 @@ LIB_HFILES =         \
   amigaos.h          \
   arpa_telnet.h      \
   asyn.h             \
-  bset-uint.h        \
   bufq.h             \
   bufref.h           \
   cf-h1-proxy.h      \
@@ -380,6 +379,7 @@ LIB_HFILES =         \
   timediff.h         \
   timeval.h          \
   transfer.h         \
+  uint-bset.h        \
   url.h              \
   urlapi-int.h       \
   urldata.h          \

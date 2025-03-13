@@ -23,7 +23,7 @@
  ***************************************************************************/
 
 #include "curl_setup.h"
-#include "bset-uint.h"
+#include "uint-bset.h"
 
 /* The last 3 #include files should be in this order */
 #include "curl_printf.h"
@@ -31,7 +31,7 @@
 #include "memdebug.h"
 
 
-static unsigned int bset_uint_pop_count(curl_uint64_t x)
+static unsigned int uint_bset_popcount64(curl_uint64_t x)
 {
   /* Compute the "Hamming Distance" between 'x' and 0,
    * which is the number of set bits in 'x'.
@@ -50,7 +50,7 @@ static unsigned int bset_uint_pop_count(curl_uint64_t x)
 }
 
 
-static unsigned int bset_uint_trailing0s(curl_uint64_t x)
+static unsigned int uint_bset_trailing0s(curl_uint64_t x)
 {
   /* divide and conquer to find the number of lower 0 bits */
   const curl_uint64_t ml32 = 0xFFFFFFFFUL; /* lower 32 bits */
@@ -87,14 +87,14 @@ static unsigned int bset_uint_trailing0s(curl_uint64_t x)
 }
 
 
-CURLcode Curl_bset_uint_init(struct bset_uint *bset, unsigned int nmax)
+CURLcode Curl_uint_bset_init(struct uint_bset *bset, unsigned int nmax)
 {
   memset(bset, 0, sizeof(*bset));
-  return Curl_bset_uint_resize(bset, nmax);
+  return Curl_uint_bset_resize(bset, nmax);
 }
 
 
-CURLcode Curl_bset_uint_resize(struct bset_uint *bset, unsigned int nmax)
+CURLcode Curl_uint_bset_resize(struct uint_bset *bset, unsigned int nmax)
 {
   unsigned int nslots = (nmax + 63) / 64;
 
@@ -113,14 +113,14 @@ CURLcode Curl_bset_uint_resize(struct bset_uint *bset, unsigned int nmax)
 }
 
 
-void Curl_bset_uint_destroy(struct bset_uint *bset)
+void Curl_uint_bset_destroy(struct uint_bset *bset)
 {
   free(bset->slots);
   memset(bset, 0, sizeof(*bset));
 }
 
 
-unsigned int Curl_bset_uint_capacity(struct bset_uint *bset)
+unsigned int Curl_uint_bset_capacity(struct uint_bset *bset)
 {
   size_t capacity = bset->nslots * 64;
   DEBUGASSERT(capacity <= UINT_MAX);
@@ -128,25 +128,25 @@ unsigned int Curl_bset_uint_capacity(struct bset_uint *bset)
 }
 
 
-unsigned int Curl_bset_uint_count(struct bset_uint *bset)
+unsigned int Curl_uint_bset_count(struct uint_bset *bset)
 {
   unsigned int i;
   unsigned int n = 0;
   for(i = 0; i < bset->nslots; ++i) {
     if(bset->slots[i])
-      n += bset_uint_pop_count(bset->slots[i]);
+      n += uint_bset_popcount64(bset->slots[i]);
   }
   return n;
 }
 
 
-void Curl_bset_uint_clear(struct bset_uint *bset)
+void Curl_uint_bset_clear(struct uint_bset *bset)
 {
   memset(bset->slots, 0, bset->nslots * sizeof(curl_uint64_t));
 }
 
 
-bool Curl_bset_uint_add(struct bset_uint *bset, unsigned int i)
+bool Curl_uint_bset_add(struct uint_bset *bset, unsigned int i)
 {
   unsigned int islot = i / 64;
   if(islot >= bset->nslots)
@@ -156,7 +156,7 @@ bool Curl_bset_uint_add(struct bset_uint *bset, unsigned int i)
 }
 
 
-void Curl_bset_uint_remove(struct bset_uint *bset, unsigned int i)
+void Curl_uint_bset_remove(struct uint_bset *bset, unsigned int i)
 {
   size_t islot = i / 64;
   if(islot < bset->nslots)
@@ -164,7 +164,7 @@ void Curl_bset_uint_remove(struct bset_uint *bset, unsigned int i)
 }
 
 
-bool Curl_bset_uint_contains(struct bset_uint *bset, unsigned int i)
+bool Curl_uint_bset_contains(struct uint_bset *bset, unsigned int i)
 {
   unsigned int islot = i / 64;
   if(islot >= bset->nslots)
@@ -173,12 +173,12 @@ bool Curl_bset_uint_contains(struct bset_uint *bset, unsigned int i)
 }
 
 
-bool Curl_bset_uint_first(struct bset_uint *bset, unsigned int *pfirst)
+bool Curl_uint_bset_first(struct uint_bset *bset, unsigned int *pfirst)
 {
   unsigned int i;
   for(i = 0; i < bset->nslots; ++i) {
     if(bset->slots[i]) {
-      *pfirst = (i * 64) + bset_uint_trailing0s(bset->slots[i]);
+      *pfirst = (i * 64) + uint_bset_trailing0s(bset->slots[i]);
       return TRUE;
     }
   }
@@ -186,7 +186,7 @@ bool Curl_bset_uint_first(struct bset_uint *bset, unsigned int *pfirst)
   return FALSE;
 }
 
-bool Curl_bset_uint_next(struct bset_uint *bset, unsigned int last,
+bool Curl_uint_bset_next(struct uint_bset *bset, unsigned int last,
                          unsigned int *pnext)
 {
   unsigned int islot;
@@ -199,13 +199,13 @@ bool Curl_bset_uint_next(struct bset_uint *bset, unsigned int last,
     x = (bset->slots[islot] >> (last % 64));
     if(x) {
       /* more bits set, next is `last` + trailing0s of the shifted slot */
-      *pnext = last + bset_uint_trailing0s(x);
+      *pnext = last + uint_bset_trailing0s(x);
       return TRUE;
     }
     /* no more bits set in the last slot, scan forward */
     for(islot = islot + 1; islot < bset->nslots; ++islot) {
       if(bset->slots[islot]) {
-        *pnext = (islot * 64) + bset_uint_trailing0s(bset->slots[islot]);
+        *pnext = (islot * 64) + uint_bset_trailing0s(bset->slots[islot]);
         return TRUE;
       }
     }
