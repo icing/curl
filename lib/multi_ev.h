@@ -33,7 +33,7 @@ struct easy_pollset;
 
 struct curl_multi_ev {
   struct Curl_hash sh_entries;
-  struct Curl_hash_offt xfer_pollsets;
+  struct uint_hash xfer_pollsets;
   struct Curl_hash_offt conn_pollsets;
 };
 
