@@ -525,9 +525,9 @@ CURLcode Curl_open(struct Curl_easy **curl)
     data->state.recent_conn_id = -1;
     /* and not assigned an id yet */
     data->id = -1;
-    data->mid = UINT_MAX;
+    data->mid = CURL_MULTI_MID_INVALID;
 #ifndef CURL_DISABLE_DOH
-    data->set.dohfor_mid = UINT_MAX;
+    data->set.dohfor_mid = CURL_MULTI_MID_INVALID;
 #endif
 
     data->progress.flags |= PGRS_HIDE;
@@ -3650,7 +3650,7 @@ static CURLcode create_conn(struct Curl_easy *data,
         break;
       case CPOOL_LIMIT_TOTAL:
 #ifndef CURL_DISABLE_DOH
-        if(data->set.dohfor_mid > 0)
+        if(data->set.dohfor_mid != CURL_MULTI_MID_INVALID)
           infof(data, "Allowing DoH to override max connection limit");
         else
 #endif

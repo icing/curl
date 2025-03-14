@@ -121,7 +121,7 @@ bool Curl_uint_tbl_add(struct uint_tbl *tbl, void *entry, unsigned int *pkey)
 
   if(!entry || !pkey)
     return FALSE;
-  *pkey = UINT_MAX; /* most likely invalid */
+  *pkey = UINT_MAX; /* always invalid */
   if(tbl->nentries == tbl->nrows)  /* full */
     return FALSE;
 
@@ -173,7 +173,7 @@ static bool uint_tbl_next_at(struct uint_tbl *tbl, unsigned int key,
       return TRUE;
     }
   }
-  *pkey = UINT_MAX;
+  *pkey = UINT_MAX;  /* always invalid */
   *pentry = NULL;
   return FALSE;
 }
@@ -186,7 +186,7 @@ bool Curl_uint_tbl_first(struct uint_tbl *tbl,
   if(tbl->nentries && uint_tbl_next_at(tbl, 0, pkey, pentry))
     return TRUE;
   DEBUGASSERT(!tbl->nentries);
-  *pkey = UINT_MAX;
+  *pkey = UINT_MAX;  /* always invalid */
   *pentry = NULL;
   return FALSE;
 }
@@ -199,7 +199,7 @@ bool Curl_uint_tbl_next(struct uint_tbl *tbl, unsigned int last_key,
     return FALSE;
   if(uint_tbl_next_at(tbl, last_key + 1, pkey, pentry))
     return TRUE;
-  *pkey = UINT_MAX;
+  *pkey = UINT_MAX;  /* always invalid */
   *pentry = NULL;
   return FALSE;
 }

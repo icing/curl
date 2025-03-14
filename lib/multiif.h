@@ -163,11 +163,17 @@ CURLcode Curl_multi_xfer_sockbuf_borrow(struct Curl_easy *data,
  */
 void Curl_multi_xfer_sockbuf_release(struct Curl_easy *data, char *buf);
 
+/* A `data->mid` value that is never assigned by a multi */
+#define CURL_MULTI_MID_INVALID    (UINT_MAX)
+
 /**
  * Get the easy handle for the given mid.
  * Returns NULL if not found.
  */
 struct Curl_easy *Curl_multi_get_easy(struct Curl_multi *multi,
                                       unsigned int mid);
+
+/* Get the # of transfers current in process/pending. */
+unsigned int Curl_multi_xfers_running(struct Curl_multi *multi);
 
 #endif /* HEADER_CURL_MULTIIF_H */

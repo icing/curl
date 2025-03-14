@@ -92,19 +92,15 @@ struct Curl_multi {
   unsigned int magic;
 
   struct uint_tbl xfers; /* transfers added to this multi */
-  unsigned int num_easy; /* amount of entries in the linked list above. */
-  unsigned int num_alive; /* amount of easy handles that are added but have
-                             not yet reached COMPLETE state */
+  /* Each transfer's mid may be present in at most one of these */
+  struct uint_bset process; /* transfer being processed */
+  struct uint_bset pending; /* transfers in waiting (conn limit etc.) */
+  struct uint_bset msgsent; /* transfers done with message for application */
 
   struct Curl_llist msglist; /* a list of messages from completed transfers */
 
-  /* Each added easy handle is added to ONE of these three lists */
-  struct uint_bset process; /* `mid`s not in PENDING or MSGSENT */
-  struct uint_bset pending; /* `mid`s in PENDING state */
-  struct uint_bset msgsent; /* `mid`s in MSGSENT */
-  curl_off_t next_easy_mid; /* next multi-id for easy handle added */
-
-  struct Curl_easy *admin; /* internal easy handle for admin operations */
+  struct Curl_easy *admin; /* internal easy handle for admin operations.
+                              gets assigned `mid` 0 on multi init */
 
   /* callback function and user data pointer for the *socket() API */
   curl_socket_callback socket_cb;

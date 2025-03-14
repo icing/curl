@@ -172,10 +172,12 @@ static void mstate(struct Curl_easy *data, CURLMstate state
   data->mstate = state;
 
   if(state == MSTATE_COMPLETED) {
-    /* changing to COMPLETED means there is one less easy handle 'alive' */
-    DEBUGASSERT(data->multi->num_alive > 0);
-    data->multi->num_alive--;
-    if(!data->multi->num_alive) {
+    /* changing to COMPLETED means it is in process and needs to go */
+    DEBUGASSERT(Curl_uint_bset_contains(&data->multi->process, data->mid));
+    Curl_uint_bset_remove(&data->multi->process, data->mid);
+    Curl_uint_bset_remove(&data->multi->pending, data->mid); /* to be sure */
+
+    if(!Curl_uint_bset_count(&data->multi->process)) {
       /* free the transfer buffer when we have no more active transfers */
       multi_xfer_bufs_free(data->multi);
     }
@@ -357,9 +359,12 @@ CURLMcode curl_multi_add_handle(CURLM *m, CURL *d)
     /* a "dead" handle cannot get added transfers while any existing easy
        handles are still alive - but if there are none alive anymore, it is
        fine to start over and unmark the "deadness" of this handle */
-    if(multi->num_alive)
+    if(Curl_uint_tbl_count(&multi->xfers) > 1) /* more than admin handle */
       return CURLM_ABORTED_BY_CALLBACK;
     multi->dead = FALSE;
+    Curl_uint_bset_clear(&multi->process);
+    Curl_uint_bset_clear(&multi->pending);
+    Curl_uint_bset_clear(&multi->msgsent);
   }
 
   if(data->multi_easy) {
@@ -423,7 +428,7 @@ CURLMcode curl_multi_add_handle(CURLM *m, CURL *d)
   if(rc) {
     data->multi = NULL; /* not anymore */
     Curl_uint_tbl_remove(&multi->xfers, data->mid);
-    data->mid = UINT_MAX;
+    data->mid = CURL_MULTI_MID_INVALID;
     return rc;
   }
 
@@ -449,12 +454,6 @@ CURLMcode curl_multi_add_handle(CURLM *m, CURL *d)
   /* add the easy handle to the process set */
   Curl_uint_bset_add(&multi->process, data->mid);
 
-  /* increase the node-counter */
-  multi->num_easy++;
-
-  /* increase the alive-counter */
-  multi->num_alive++;
-
   Curl_cpool_xfer_init(data);
   multi_warn_debug(multi, data);
 
@@ -467,7 +466,8 @@ CURLMcode curl_multi_add_handle(CURLM *m, CURL *d)
     data->set.server_response_timeout;
   multi->admin->set.no_signal = data->set.no_signal;
 
-  CURL_TRC_M(data, "added, transfers=%u", multi->num_easy);
+  CURL_TRC_M(data, "added, transfers=%u",
+             Curl_uint_tbl_count(&multi->xfers) - 1);
   return CURLM_OK;
 }
 
@@ -499,6 +499,8 @@ static void multi_done_locked(struct connectdata *conn,
 
   Curl_detach_connection(data);
 
+  CURL_TRC_M(data, "multi_done_locked, in use=%zu",
+             Curl_llist_count(&conn->easyq));
   if(CONN_INUSE(conn)) {
     /* Stop if still used. */
     CURL_TRC_M(data, "Connection still in use %zu, no more multi_done now!",
@@ -682,7 +684,11 @@ CURLMcode curl_multi_remove_handle(CURLM *m, CURL *d)
   if(data->multi != multi)
     return CURLM_BAD_EASY_HANDLE;
 
-  if(!multi->num_easy) {
+  if(data->mid == CURL_MULTI_MID_INVALID) {
+    DEBUGASSERT(0);
+    return CURLM_INTERNAL_ERROR;
+  }
+  if(Curl_uint_tbl_get(&multi->xfers, data->mid) != data) {
     DEBUGASSERT(0);
     return CURLM_INTERNAL_ERROR;
   }
@@ -694,12 +700,6 @@ CURLMcode curl_multi_remove_handle(CURLM *m, CURL *d)
 
   /* If the 'state' is not INIT or COMPLETED, we might need to do something
      nice to put the easy_handle in a good known state when this returns. */
-  if(premature) {
-    /* this handle is "alive" so we need to count down the total number of
-       alive connections when this is removed */
-    multi->num_alive--;
-  }
-
   if(data->conn &&
      data->mstate > MSTATE_DO &&
      data->mstate < MSTATE_COMPLETED) {
@@ -787,11 +787,10 @@ CURLMcode curl_multi_remove_handle(CURLM *m, CURL *d)
 
   data->multi = NULL; /* clear the association to this multi handle */
   Curl_uint_tbl_remove(&multi->xfers, data->mid);
-  data->mid = UINT_MAX;
+  data->mid = CURL_MULTI_MID_INVALID;
 
   /* NOTE NOTE NOTE
      We do not touch the easy handle here! */
-  multi->num_easy--; /* one less to care about now */
   process_pending_handles(multi);
 
   if(removed_timer) {
@@ -800,7 +799,8 @@ CURLMcode curl_multi_remove_handle(CURLM *m, CURL *d)
       return rc;
   }
 
-  CURL_TRC_M(data, "removed, transfers=%u", multi->num_easy);
+  CURL_TRC_M(data, "removed, transfers=%u",
+             Curl_uint_tbl_count(&multi->xfers) - 1);
   return CURLM_OK;
 }
 
@@ -2658,7 +2658,8 @@ CURLMcode curl_multi_perform(CURLM *m, int *running_handles)
 
   sigpipe_init(&pipe_st);
   if(Curl_uint_bset_first(&multi->process, &mid)) {
-    CURL_TRC_M(multi->admin, "multi_perform(running=%u)", multi->num_alive);
+    CURL_TRC_M(multi->admin, "multi_perform(running=%u)",
+               Curl_uint_bset_count(&multi->process));
     do {
       struct Curl_easy *data = Curl_multi_get_easy(multi, mid);
       CURLMcode result;
@@ -2712,8 +2713,10 @@ CURLMcode curl_multi_perform(CURLM *m, int *running_handles)
     }
   } while(t);
 
-  if(running_handles)
-    *running_handles = (int)multi->num_alive;
+  if(running_handles) {
+    unsigned int running = Curl_multi_xfers_running(multi);
+    *running_handles = (running < INT_MAX) ? (int)running : INT_MAX;
+  }
 
   if(CURLM_OK >= returncode)
     returncode = Curl_update_timer(multi);
@@ -2778,7 +2781,7 @@ CURLMcode curl_multi_cleanup(CURLM *m)
 
         data->multi = NULL; /* clear the association */
         Curl_uint_tbl_remove(&multi->xfers, data->mid);
-        data->mid = UINT_MAX;
+        data->mid = CURL_MULTI_MID_INVALID;
 
 #ifdef USE_LIBPSL
         if(data->psl == &multi->psl)
@@ -3056,8 +3059,10 @@ out:
   if(multi_ischanged(multi, TRUE))
     process_pending_handles(multi);
 
-  if(running_handles)
-    *running_handles = (int)multi->num_alive;
+  if(running_handles) {
+    unsigned int running = Curl_multi_xfers_running(multi);
+    *running_handles = (running < INT_MAX) ? (int)running : INT_MAX;
+  }
 
   if(CURLM_OK >= result)
     result = Curl_update_timer(multi);
@@ -3760,6 +3765,12 @@ struct Curl_easy *Curl_multi_get_easy(struct Curl_multi *multi,
              mid);
   Curl_uint_tbl_remove(&multi->xfers, mid);
   return NULL;
+}
+
+unsigned int Curl_multi_xfers_running(struct Curl_multi *multi)
+{
+  return Curl_uint_bset_count(&multi->process) +
+         Curl_uint_bset_count(&multi->pending);
 }
 
 #ifdef DEBUGBUILD

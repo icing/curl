@@ -44,6 +44,7 @@
 #include "select.h"
 #include "strcase.h"
 #include "strparse.h"
+#include "uint-table.h"
 
 /* The last 3 #include files should be in this order */
 #include "curl_printf.h"
@@ -522,7 +523,7 @@ bool Curl_cpool_conn_now_idle(struct Curl_easy *data,
                               struct connectdata *conn)
 {
   unsigned int maxconnects = !data->multi->maxconnects ?
-    data->multi->num_easy * 4 : data->multi->maxconnects;
+    (Curl_multi_xfers_running(data->multi) * 4) : data->multi->maxconnects;
   struct connectdata *oldest_idle = NULL;
   struct cpool *cpool = cpool_get_instance(data);
   bool kept = TRUE;
