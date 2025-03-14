@@ -33,6 +33,8 @@
 #include "timeval.h"
 #include "multi_ev.h"
 #include "select.h"
+#include "uint-bset.h"
+#include "uint-table.h"
 #include "warnless.h"
 #include "multihandle.h"
 #include "socks.h"
@@ -47,14 +49,13 @@ static void mev_in_callback(struct Curl_multi *multi, bool value)
   multi->in_callback = value;
 }
 
-#define CURL_MEV_XFER_HASH_SIZE 13
 #define CURL_MEV_CONN_HASH_SIZE 3
 
 /* Information about a socket for which we inform the libcurl application
  * what to supervise (CURL_POLL_IN/CURL_POLL_OUT/CURL_POLL_REMOVE)
  */
 struct mev_sh_entry {
-  struct uint_hash xfers; /* hash of transfers using this socket */
+  struct uint_bset xfers; /* bitset of transfers `mid`s on this socket */
   struct Curl_hash_offt conns; /* hash of connections using this socket */
   void *user_data;      /* libcurl app data via curl_multi_assign() */
   unsigned int action;  /* CURL_POLL_IN/CURL_POLL_OUT we last told the
@@ -81,7 +82,7 @@ static size_t mev_sh_entry_compare(void *k1, size_t k1_len,
 static void mev_sh_entry_dtor(void *freethis)
 {
   struct mev_sh_entry *entry = (struct mev_sh_entry *)freethis;
-  Curl_uint_hash_destroy(&entry->xfers);
+  Curl_uint_bset_destroy(&entry->xfers);
   Curl_hash_offt_destroy(&entry->conns);
   free(entry);
 }
@@ -99,7 +100,8 @@ mev_sh_entry_get(struct Curl_hash *sh, curl_socket_t s)
 
 /* make sure this socket is present in the hash for this handle */
 static struct mev_sh_entry *
-mev_sh_entry_add(struct Curl_hash *sh, curl_socket_t s)
+mev_sh_entry_add(struct Curl_multi *multi,
+                 struct Curl_hash *sh, curl_socket_t s)
 {
   struct mev_sh_entry *there = mev_sh_entry_get(sh, s);
   struct mev_sh_entry *check;
@@ -114,7 +116,7 @@ mev_sh_entry_add(struct Curl_hash *sh, curl_socket_t s)
   if(!check)
     return NULL; /* major failure */
 
-  Curl_uint_hash_init(&check->xfers, CURL_MEV_XFER_HASH_SIZE, NULL);
+  Curl_uint_bset_init(&check->xfers, Curl_uint_tbl_capacity(&multi->xfers));
   Curl_hash_offt_init(&check->conns, CURL_MEV_CONN_HASH_SIZE, NULL);
 
   /* make/add new hash entry */
@@ -134,13 +136,13 @@ static void mev_sh_entry_kill(struct Curl_multi *multi, curl_socket_t s)
 
 static size_t mev_sh_entry_user_count(struct mev_sh_entry *e)
 {
-  return Curl_uint_hash_count(&e->xfers) + Curl_hash_offt_count(&e->conns);
+  return Curl_uint_bset_count(&e->xfers) + Curl_hash_offt_count(&e->conns);
 }
 
 static bool mev_sh_entry_xfer_known(struct mev_sh_entry *e,
                                     struct Curl_easy *data)
 {
-  return !!Curl_uint_hash_get(&e->xfers, data->mid);
+  return Curl_uint_bset_contains(&e->xfers, data->mid);
 }
 
 static bool mev_sh_entry_conn_known(struct mev_sh_entry *e,
@@ -154,7 +156,12 @@ static bool mev_sh_entry_xfer_add(struct mev_sh_entry *e,
 {
    /* detect weird values */
   DEBUGASSERT(mev_sh_entry_user_count(e) < 100000);
-  return !!Curl_uint_hash_set(&e->xfers, data->mid, data);
+  if(!Curl_uint_bset_add(&e->xfers, data->mid)) {
+    /* not large enough */
+    if(Curl_uint_bset_resize(&e->xfers, data->mid))
+      return FALSE;
+  }
+  return Curl_uint_bset_add(&e->xfers, data->mid);
 }
 
 static bool mev_sh_entry_conn_add(struct mev_sh_entry *e,
@@ -169,7 +176,10 @@ static bool mev_sh_entry_conn_add(struct mev_sh_entry *e,
 static bool mev_sh_entry_xfer_remove(struct mev_sh_entry *e,
                                      struct Curl_easy *data)
 {
-  return Curl_uint_hash_remove(&e->xfers, data->mid);
+  bool present = Curl_uint_bset_contains(&e->xfers, data->mid);
+  if(present)
+    Curl_uint_bset_remove(&e->xfers, data->mid);
+  return present;
 }
 
 /* Purge any information about socket `s`.
@@ -305,7 +315,7 @@ static CURLMcode mev_pollset_diff(struct Curl_multi *multi,
     if(!entry) {
       /* new socket, add new entry */
       first_time = TRUE;
-      entry = mev_sh_entry_add(&multi->ev.sh_entries, s);
+      entry = mev_sh_entry_add(multi, &multi->ev.sh_entries, s);
       if(!entry) /* fatal */
         return CURLM_OUT_OF_MEMORY;
       CURL_TRC_M(data, "ev new entry fd=%" FMT_SOCKET_T, s);
@@ -336,7 +346,7 @@ static CURLMcode mev_pollset_diff(struct Curl_multi *multi,
                  ", total=%u/%zu (xfer/conn)", s,
                  conn ? "connection" : "transfer",
                  conn ? conn->connection_id : data->mid,
-                 Curl_uint_hash_count(&entry->xfers),
+                 Curl_uint_bset_count(&entry->xfers),
                  Curl_hash_offt_count(&entry->conns));
     }
     else {
@@ -394,7 +404,7 @@ static CURLMcode mev_pollset_diff(struct Curl_multi *multi,
         return mresult;
       CURL_TRC_M(data, "ev entry fd=%" FMT_SOCKET_T ", removed transfer, "
                  "total=%u/%zu (xfer/conn)", s,
-                 Curl_uint_hash_count(&entry->xfers),
+                 Curl_uint_bset_count(&entry->xfers),
                  Curl_hash_offt_count(&entry->conns));
     }
     else {
@@ -533,22 +543,6 @@ CURLMcode Curl_multi_ev_assign(struct Curl_multi *multi,
   return CURLM_OK;
 }
 
-static bool mev_xfer_expire_cb(unsigned int id, void *value, void *user_data)
-{
-  const struct curltime *nowp = user_data;
-  struct Curl_easy *data = value;
-
-  (void)id;
-  DEBUGASSERT(data);
-  DEBUGASSERT(data->magic == CURLEASY_MAGIC_NUMBER);
-  if(data && data->multi && data != data->multi->admin) {
-    /* Expire with out current now, so we will get it below when
-     * asking the splaytree for expired transfers. */
-    Curl_expire_ex(data, nowp, 0, EXPIRE_RUN_NOW);
-  }
-  return TRUE;
-}
-
 void Curl_multi_ev_expire_xfers(struct Curl_multi *multi,
                                 curl_socket_t s,
                                 const struct curltime *nowp,
@@ -565,8 +559,20 @@ void Curl_multi_ev_expire_xfers(struct Curl_multi *multi,
      asked to get removed, so thus we better survive stray socket actions
      and just move on. */
   if(entry) {
-    Curl_uint_hash_visit(&entry->xfers, mev_xfer_expire_cb,
-                         CURL_UNCONST(nowp));
+    struct Curl_easy *data;
+    unsigned int mid;
+
+    if(Curl_uint_bset_first(&entry->xfers, &mid)) {
+      do {
+        data = Curl_multi_get_handle(multi, mid);
+        if(data) {
+          /* Expire with out current now, so we will get it below when
+           * asking the splaytree for expired transfers. */
+          Curl_expire_ex(data, nowp, 0, EXPIRE_RUN_NOW);
+        }
+      }
+      while(Curl_uint_bset_next(&entry->xfers, mid, &mid));
+    }
 
     if(Curl_hash_offt_count(&entry->conns))
       *run_cpool = TRUE;
