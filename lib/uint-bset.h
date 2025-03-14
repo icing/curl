@@ -49,6 +49,9 @@ unsigned int Curl_uint_bset_capacity(struct uint_bset *bset);
 /* Get the cardinality of the bitset, e.g. numbers present in the set. */
 unsigned int Curl_uint_bset_count(struct uint_bset *bset);
 
+/* TRUE of bitset is empty */
+bool Curl_uint_bset_empty(struct uint_bset *bset);
+
 /* Clear the bitset, making it empty. */
 void Curl_uint_bset_clear(struct uint_bset *bset);
 

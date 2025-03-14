@@ -177,7 +177,7 @@ static void mstate(struct Curl_easy *data, CURLMstate state
     Curl_uint_bset_remove(&data->multi->process, data->mid);
     Curl_uint_bset_remove(&data->multi->pending, data->mid); /* to be sure */
 
-    if(!Curl_uint_bset_count(&data->multi->process)) {
+    if(Curl_uint_bset_empty(&data->multi->process)) {
       /* free the transfer buffer when we have no more active transfers */
       multi_xfer_bufs_free(data->multi);
     }
@@ -453,6 +453,7 @@ CURLMcode curl_multi_add_handle(CURLM *m, CURL *d)
 
   /* add the easy handle to the process set */
   Curl_uint_bset_add(&multi->process, data->mid);
+  ++multi->xfers_alive;
 
   Curl_cpool_xfer_init(data);
   multi_warn_debug(multi, data);
@@ -2632,6 +2633,7 @@ statemachine_end:
       Curl_uint_bset_remove(&multi->process, data->mid);
       Curl_uint_bset_remove(&multi->pending, data->mid);
       Curl_uint_bset_add(&multi->msgsent, data->mid);
+      --multi->xfers_alive;
       return CURLM_OK;
     }
   } while((rc == CURLM_CALL_MULTI_PERFORM) || multi_ischanged(multi, FALSE));
@@ -2659,7 +2661,7 @@ CURLMcode curl_multi_perform(CURLM *m, int *running_handles)
   sigpipe_init(&pipe_st);
   if(Curl_uint_bset_first(&multi->process, &mid)) {
     CURL_TRC_M(multi->admin, "multi_perform(running=%u)",
-               Curl_uint_bset_count(&multi->process));
+               Curl_multi_xfers_running(multi));
     do {
       struct Curl_easy *data = Curl_multi_get_easy(multi, mid);
       CURLMcode result;
@@ -2724,27 +2726,6 @@ CURLMcode curl_multi_perform(CURLM *m, int *running_handles)
   return returncode;
 }
 
-/* unlink_all_msgsent_handles() moves all nodes back from the msgsent list to
-   the process list */
-static void unlink_all_msgsent_handles(struct Curl_multi *multi)
-{
-  unsigned int mid;
-
-  if(Curl_uint_bset_first(&multi->msgsent, &mid)) {
-    do {
-      struct Curl_easy *data = Curl_multi_get_easy(multi, mid);
-
-      /* move it into the process set, if still found */
-      Curl_uint_bset_remove(&multi->msgsent, mid);
-      if(data) {
-        DEBUGASSERT(data->mstate == MSTATE_MSGSENT);
-        Curl_uint_bset_add(&multi->process, mid);
-      }
-    }
-    while(Curl_uint_bset_next(&multi->msgsent, mid, &mid));
-  }
-}
-
 CURLMcode curl_multi_cleanup(CURLM *m)
 {
   struct Curl_multi *multi = m;
@@ -2754,12 +2735,8 @@ CURLMcode curl_multi_cleanup(CURLM *m)
     if(multi->in_callback)
       return CURLM_RECURSIVE_API_CALL;
 
-    /* move the pending and msgsent entries back to process
-       so that there is just one list to iterate over */
-    unlink_all_msgsent_handles(multi);
-    process_pending_handles(multi);
-
-    /* First remove all remaining easy handles */
+    /* First remove all remaining easy handles,
+     * close internal ones. admin handle is special */
     if(Curl_uint_tbl_first(&multi->xfers, &mid, &entry)) {
       do {
         struct Curl_easy *data = entry;
@@ -3769,8 +3746,7 @@ struct Curl_easy *Curl_multi_get_easy(struct Curl_multi *multi,
 
 unsigned int Curl_multi_xfers_running(struct Curl_multi *multi)
 {
-  return Curl_uint_bset_count(&multi->process) +
-         Curl_uint_bset_count(&multi->pending);
+  return multi->xfers_alive;
 }
 
 #ifdef DEBUGBUILD

@@ -148,6 +148,17 @@ unsigned int Curl_uint_bset_count(struct uint_bset *bset)
 }
 
 
+bool Curl_uint_bset_empty(struct uint_bset *bset)
+{
+  unsigned int i;
+  for(i = 0; i < bset->nslots; ++i) {
+    if(bset->slots[i])
+      return FALSE;
+  }
+  return TRUE;
+}
+
+
 void Curl_uint_bset_clear(struct uint_bset *bset)
 {
   memset(bset->slots, 0, bset->nslots * sizeof(curl_uint64_t));

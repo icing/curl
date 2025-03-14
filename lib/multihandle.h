@@ -91,6 +91,8 @@ struct Curl_multi {
      this multi handle with an easy handle. Set this to CURL_MULTI_HANDLE. */
   unsigned int magic;
 
+  unsigned int xfers_alive; /* amount of added transfers that have
+                               not yet reached COMPLETE state */
   struct uint_tbl xfers; /* transfers added to this multi */
   /* Each transfer's mid may be present in at most one of these */
   struct uint_bset process; /* transfer being processed */
