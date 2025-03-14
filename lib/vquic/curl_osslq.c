@@ -1427,7 +1427,7 @@ static bool cf_osslq_iter_recv(unsigned int mid, void *val, void *user_data)
 
   (void)mid;
   if(stream && !stream->closed && !Curl_bufq_is_full(&stream->recvbuf)) {
-    struct Curl_easy *sdata = Curl_multi_get_handle(rctx->multi, mid);
+    struct Curl_easy *sdata = Curl_multi_get_easy(rctx->multi, mid);
     if(sdata) {
       rctx->result = cf_osslq_stream_recv(&stream->s, rctx->cf, sdata);
       if(rctx->result)
@@ -1505,7 +1505,7 @@ static bool cf_osslq_collect_block_send(unsigned int mid, void *val,
     return FALSE;
 
   if(stream && stream->s.ssl && stream->s.send_blocked) {
-    struct Curl_easy *sdata = Curl_multi_get_handle(fctx->multi, mid);
+    struct Curl_easy *sdata = Curl_multi_get_easy(fctx->multi, mid);
     fprintf(stderr, "[OSSLQ] stream %" FMT_PRId64 " sdata=%p\n",
             stream->s.id, (void *)sdata);
     if(sdata) {

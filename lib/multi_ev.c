@@ -525,7 +525,7 @@ CURLMcode Curl_multi_ev_assess_xfer_bset(struct Curl_multi *multi,
 
   if(multi && multi->socket_cb && Curl_uint_bset_first(set, &mid)) {
     do {
-      struct Curl_easy *data = Curl_multi_get_handle(multi, mid);
+      struct Curl_easy *data = Curl_multi_get_easy(multi, mid);
       if(data)
         result = Curl_multi_ev_assess_xfer(multi, data);
     }
@@ -567,7 +567,7 @@ void Curl_multi_ev_expire_xfers(struct Curl_multi *multi,
 
     if(Curl_uint_bset_first(&entry->xfers, &mid)) {
       do {
-        data = Curl_multi_get_handle(multi, mid);
+        data = Curl_multi_get_easy(multi, mid);
         if(data) {
           /* Expire with out current now, so we will get it below when
            * asking the splaytree for expired transfers. */

@@ -527,7 +527,7 @@ CURLcode Curl_open(struct Curl_easy **curl)
     data->id = -1;
     data->mid = UINT_MAX;
 #ifndef CURL_DISABLE_DOH
-    data->set.dohfor_mid = -1;
+    data->set.dohfor_mid = UINT_MAX;
 #endif
 
     data->progress.flags |= PGRS_HIDE;
@@ -3650,7 +3650,7 @@ static CURLcode create_conn(struct Curl_easy *data,
         break;
       case CPOOL_LIMIT_TOTAL:
 #ifndef CURL_DISABLE_DOH
-        if(data->set.dohfor_mid >= 0)
+        if(data->set.dohfor_mid > 0)
           infof(data, "Allowing DoH to override max connection limit");
         else
 #endif

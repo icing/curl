@@ -212,7 +212,7 @@ static bool cf_quiche_stream_do(unsigned int mid, void *val, void *user_data)
 {
   struct cf_quiche_visit_ctx *vctx = user_data;
   struct stream_ctx *stream = val;
-  struct Curl_easy *sdata = Curl_multi_get_handle(vctx->multi, mid);
+  struct Curl_easy *sdata = Curl_multi_get_easy(vctx->multi, mid);
   if(sdata)
     return vctx->cb(vctx->cf, sdata, stream, vctx->user_data);
   return TRUE;
@@ -587,7 +587,7 @@ static bool cf_quiche_disp_event(unsigned int mid, void *val, void *user_data)
   struct stream_ctx *stream = val;
 
   if(stream->id == dctx->stream_id) {
-    struct Curl_easy *sdata = Curl_multi_get_handle(dctx->multi, mid);
+    struct Curl_easy *sdata = Curl_multi_get_easy(dctx->multi, mid);
     if(sdata)
       dctx->result = cf_quiche_ev_process(dctx->cf, sdata, stream, dctx->ev);
     return FALSE; /* stop iterating */

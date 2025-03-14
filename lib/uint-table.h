@@ -67,7 +67,8 @@ void *Curl_uint_tbl_get(struct uint_tbl *tbl, unsigned int key);
 /* Add a new entry to the table and assign it a free key.
  * Returns FALSE if the table is full.
  *
- * Keys are assigned in a round-robin manner. */
+ * Keys are assigned in a round-robin manner.
+ * No matter the capacity, UINT_MAX is never assigned. */
 bool Curl_uint_tbl_add(struct uint_tbl *tbl, void *entry, unsigned int *pkey);
 
 /* Remove the entry with `key`. */

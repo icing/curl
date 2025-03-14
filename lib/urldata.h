@@ -1682,7 +1682,7 @@ struct UserDefined {
   long upkeep_interval_ms;      /* Time between calls for connection upkeep. */
   multidone_func fmultidone;
 #ifndef CURL_DISABLE_DOH
-  curl_off_t dohfor_mid; /* this is a DoH request for that transfer */
+  unsigned int dohfor_mid; /* this is a DoH request for that transfer */
 #endif
   CURLU *uh; /* URL handle for the current parsed URL */
 #ifndef CURL_DISABLE_HTTP

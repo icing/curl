@@ -213,10 +213,10 @@ static int doh_done(struct Curl_easy *doh, CURLcode result)
 {
   struct Curl_easy *data; /* the transfer that asked for the DoH probe */
 
-  data = Curl_multi_get_handle(doh->multi, doh->set.dohfor_mid);
+  data = Curl_multi_get_easy(doh->multi, doh->set.dohfor_mid);
   if(!data) {
-    DEBUGF(infof(doh, "doh_done: xfer for mid=%" FMT_OFF_T
-                 " not found", doh->set.dohfor_mid));
+    DEBUGF(infof(doh, "doh_done: xfer for mid=%u not found",
+           doh->set.dohfor_mid));
     DEBUGASSERT(0);
   }
   else {
@@ -1296,7 +1296,7 @@ void Curl_doh_close(struct Curl_easy *data)
       doh->probe[slot].easy_mid = 0;
       /* should have been called before data is removed from multi handle */
       DEBUGASSERT(data->multi);
-      probe_data = data->multi ? Curl_multi_get_handle(data->multi, mid) :
+      probe_data = data->multi ? Curl_multi_get_easy(data->multi, mid) :
         NULL;
       if(!probe_data) {
         DEBUGF(infof(data, "Curl_doh_close: xfer for mid=%u not found!",

@@ -1081,7 +1081,7 @@ CURLMcode curl_multi_fdset(CURLM *m,
 
   if(Curl_uint_bset_first(&multi->process, &mid)) {
     do {
-      struct Curl_easy *data = Curl_multi_get_handle(multi, mid);
+      struct Curl_easy *data = Curl_multi_get_easy(multi, mid);
       struct easy_pollset ps;
 
       if(!data) {
@@ -1142,7 +1142,7 @@ CURLMcode curl_multi_waitfds(CURLM *m,
   Curl_waitfds_init(&cwfds, ufds, size);
   if(Curl_uint_bset_first(&multi->process, &mid)) {
     do {
-      struct Curl_easy *data = Curl_multi_get_handle(multi, mid);
+      struct Curl_easy *data = Curl_multi_get_easy(multi, mid);
       struct easy_pollset ps;
       if(!data) {
         DEBUGASSERT(0);
@@ -1224,7 +1224,7 @@ static CURLMcode multi_wait(struct Curl_multi *multi,
   /* Add the curl handles to our pollfds first */
   if(Curl_uint_bset_first(&multi->process, &mid)) {
     do {
-      struct Curl_easy *data = Curl_multi_get_handle(multi, mid);
+      struct Curl_easy *data = Curl_multi_get_easy(multi, mid);
       struct easy_pollset ps;
       if(!data) {
         DEBUGASSERT(0);
@@ -2660,7 +2660,7 @@ CURLMcode curl_multi_perform(CURLM *m, int *running_handles)
   if(Curl_uint_bset_first(&multi->process, &mid)) {
     CURL_TRC_M(multi->admin, "multi_perform(running=%u)", multi->num_alive);
     do {
-      struct Curl_easy *data = Curl_multi_get_handle(multi, mid);
+      struct Curl_easy *data = Curl_multi_get_easy(multi, mid);
       CURLMcode result;
       if(!data) {
         DEBUGASSERT(0);
@@ -2729,7 +2729,7 @@ static void unlink_all_msgsent_handles(struct Curl_multi *multi)
 
   if(Curl_uint_bset_first(&multi->msgsent, &mid)) {
     do {
-      struct Curl_easy *data = Curl_multi_get_handle(multi, mid);
+      struct Curl_easy *data = Curl_multi_get_easy(multi, mid);
 
       /* move it into the process set, if still found */
       Curl_uint_bset_remove(&multi->msgsent, mid);
@@ -3536,7 +3536,7 @@ static void process_pending_handles(struct Curl_multi *multi)
   unsigned int mid;
   if(Curl_uint_bset_first(&multi->pending, &mid)) {
     do {
-      struct Curl_easy *data = Curl_multi_get_handle(multi, mid);
+      struct Curl_easy *data = Curl_multi_get_easy(multi, mid);
       DEBUGASSERT(data);
       if(data)
         move_pending_to_connect(multi, data);
@@ -3750,11 +3750,16 @@ static void multi_xfer_bufs_free(struct Curl_multi *multi)
   multi->xfer_sockbuf_borrowed = FALSE;
 }
 
-struct Curl_easy *Curl_multi_get_handle(struct Curl_multi *multi,
-                                        curl_off_t id)
+struct Curl_easy *Curl_multi_get_easy(struct Curl_multi *multi,
+                                      unsigned int mid)
 {
-  unsigned int mid = (unsigned int)id;
-  return Curl_uint_tbl_get(&multi->xfers, mid);
+  struct Curl_easy *data = mid ? Curl_uint_tbl_get(&multi->xfers, mid) : NULL;
+  if(data && GOOD_EASY_HANDLE(data))
+    return data;
+  CURL_TRC_M(multi->admin, "invalid easy handle in xfer table for mid=%u",
+             mid);
+  Curl_uint_tbl_remove(&multi->xfers, mid);
+  return NULL;
 }
 
 #ifdef DEBUGBUILD
