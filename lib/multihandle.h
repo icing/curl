@@ -31,6 +31,7 @@
 #include "multi_ev.h"
 #include "psl.h"
 #include "socketpair.h"
+#include "uint-bset.h"
 #include "uint-table.h"
 
 struct connectdata;
@@ -98,9 +99,9 @@ struct Curl_multi {
   struct Curl_llist msglist; /* a list of messages from completed transfers */
 
   /* Each added easy handle is added to ONE of these three lists */
-  struct Curl_llist process; /* not in PENDING or MSGSENT */
-  struct Curl_llist pending; /* in PENDING */
-  struct Curl_llist msgsent; /* in MSGSENT */
+  struct uint_bset process; /* `mid`s not in PENDING or MSGSENT */
+  struct uint_bset pending; /* `mid`s in PENDING state */
+  struct uint_bset msgsent; /* `mid`s in MSGSENT */
   curl_off_t next_easy_mid; /* next multi-id for easy handle added */
 
   struct Curl_easy *admin; /* internal easy handle for admin operations */

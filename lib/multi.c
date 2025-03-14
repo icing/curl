@@ -230,6 +230,12 @@ struct Curl_multi *Curl_multi_handle(unsigned int xfer_table_size,
 
   if(Curl_uint_tbl_init(&multi->xfers, xfer_table_size, NULL))
     goto error;
+  if(Curl_uint_bset_init(&multi->process, xfer_table_size))
+    goto error;
+  if(Curl_uint_bset_init(&multi->pending, xfer_table_size))
+    goto error;
+  if(Curl_uint_bset_init(&multi->msgsent, xfer_table_size))
+    goto error;
 
   Curl_init_dnscache(&multi->hostcache, dnssize);
   Curl_multi_ev_init(multi, ev_hashsize);
@@ -261,9 +267,6 @@ struct Curl_multi *Curl_multi_handle(unsigned int xfer_table_size,
     goto error;
 
   Curl_llist_init(&multi->msglist, NULL);
-  Curl_llist_init(&multi->process, NULL);
-  Curl_llist_init(&multi->pending, NULL);
-  Curl_llist_init(&multi->msgsent, NULL);
 
   multi->multiplexing = TRUE;
   multi->max_concurrent_streams = 100;
@@ -296,6 +299,11 @@ error:
     multi->admin->multi = NULL;
     Curl_close(&multi->admin);
   }
+
+  Curl_uint_bset_destroy(&multi->process);
+  Curl_uint_bset_destroy(&multi->pending);
+  Curl_uint_bset_destroy(&multi->msgsent);
+  Curl_uint_tbl_destroy(&multi->xfers);
 
   free(multi);
   return NULL;
@@ -362,11 +370,22 @@ CURLMcode curl_multi_add_handle(CURLM *m, CURL *d)
   }
 
   if(!Curl_uint_tbl_add(&multi->xfers, data, &data->mid)) {
-    unsigned int n = Curl_uint_tbl_capacity(&multi->xfers);
+    unsigned int newsize, n = Curl_uint_tbl_capacity(&multi->xfers);
     /* should only happen on a full xfer table */
     DEBUGASSERT(Curl_uint_tbl_count(&multi->xfers) == n);
-    if(Curl_uint_tbl_resize(&multi->xfers, n + CURL_XFER_TABLE_SIZE))
+    newsize = n + CURL_XFER_TABLE_SIZE;
+    /* We need our xfer table to have a larger capacity, but
+     * we need the capacity for all our uint_bset (process/pending/msgsent)
+     * as well.
+     * Grow then first, as a sets do not occupy much memory and
+     * do not harm when larger than xfer table. (The xfer tables hands
+     * out `mid`s, so its capacity determines the mod values we manage. */
+    if(Curl_uint_bset_resize(&multi->process, newsize) ||
+       Curl_uint_bset_resize(&multi->pending, newsize) ||
+       Curl_uint_bset_resize(&multi->msgsent, newsize) ||
+       Curl_uint_tbl_resize(&multi->xfers, newsize))
       return CURLM_OUT_OF_MEMORY;
+    /* Having all with the same capacity means add/remove ops cannot fail */
     if(!Curl_uint_tbl_add(&multi->xfers, data, &data->mid)) {
       /* should never happen */
       DEBUGASSERT(0);
@@ -427,8 +446,8 @@ CURLMcode curl_multi_add_handle(CURLM *m, CURL *d)
     data->psl = &multi->psl;
 #endif
 
-  /* add the easy handle to the process list */
-  Curl_llist_append(&multi->process, data, &data->multi_queue);
+  /* add the easy handle to the process set */
+  Curl_uint_bset_add(&multi->process, data->mid);
 
   /* increase the node-counter */
   multi->num_easy++;
@@ -703,8 +722,10 @@ CURLMcode curl_multi_remove_handle(CURLM *m, CURL *d)
      called. Do it after multi_done() in case that sets another time! */
   removed_timer = Curl_expire_clear(data);
 
-  /* the handle is in a list, remove it from whichever it is */
-  Curl_node_remove(&data->multi_queue);
+  /* Remove from all our sets */
+  Curl_uint_bset_remove(&multi->process, data->mid);
+  Curl_uint_bset_remove(&multi->pending, data->mid);
+  Curl_uint_bset_remove(&multi->msgsent, data->mid);
 
   if(data->dns.hostcachetype == HCACHE_MULTI) {
     /* stop using the multi handle's DNS cache, *after* the possible
@@ -1048,9 +1069,8 @@ CURLMcode curl_multi_fdset(CURLM *m,
      Some easy handles may not have connected to the remote host yet,
      and then we must make sure that is done. */
   int this_max_fd = -1;
-  struct Curl_llist_node *e;
   struct Curl_multi *multi = m;
-  unsigned int i;
+  unsigned int i, mid;
   (void)exc_fd_set; /* not used */
 
   if(!GOOD_MULTI_HANDLE(multi))
@@ -1059,30 +1079,37 @@ CURLMcode curl_multi_fdset(CURLM *m,
   if(multi->in_callback)
     return CURLM_RECURSIVE_API_CALL;
 
-  for(e = Curl_llist_head(&multi->process); e; e = Curl_node_next(e)) {
-    struct Curl_easy *data = Curl_node_elem(e);
-    struct easy_pollset ps;
+  if(Curl_uint_bset_first(&multi->process, &mid)) {
+    do {
+      struct Curl_easy *data = Curl_multi_get_handle(multi, mid);
+      struct easy_pollset ps;
 
-    Curl_multi_getsock(data, &ps, "curl_multi_fdset");
-
-    for(i = 0; i < ps.num; i++) {
-      if(!FDSET_SOCK(ps.sockets[i]))
-        /* pretend it does not exist */
+      if(!data) {
+        DEBUGASSERT(0);
         continue;
+      }
+
+      Curl_multi_getsock(data, &ps, "curl_multi_fdset");
+      for(i = 0; i < ps.num; i++) {
+        if(!FDSET_SOCK(ps.sockets[i]))
+          /* pretend it does not exist */
+          continue;
 #if defined(__DJGPP__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Warith-conversion"
 #endif
-      if(ps.actions[i] & CURL_POLL_IN)
-        FD_SET(ps.sockets[i], read_fd_set);
-      if(ps.actions[i] & CURL_POLL_OUT)
-        FD_SET(ps.sockets[i], write_fd_set);
+        if(ps.actions[i] & CURL_POLL_IN)
+          FD_SET(ps.sockets[i], read_fd_set);
+        if(ps.actions[i] & CURL_POLL_OUT)
+          FD_SET(ps.sockets[i], write_fd_set);
 #if defined(__DJGPP__)
 #pragma GCC diagnostic pop
 #endif
-      if((int)ps.sockets[i] > this_max_fd)
-        this_max_fd = (int)ps.sockets[i];
+        if((int)ps.sockets[i] > this_max_fd)
+          this_max_fd = (int)ps.sockets[i];
+      }
     }
+    while(Curl_uint_bset_next(&multi->process, mid, &mid));
   }
 
   Curl_cshutdn_setfds(&multi->cshutdn, multi->admin,
@@ -1100,9 +1127,8 @@ CURLMcode curl_multi_waitfds(CURLM *m,
 {
   struct Curl_waitfds cwfds;
   CURLMcode result = CURLM_OK;
-  struct Curl_llist_node *e;
   struct Curl_multi *multi = m;
-  unsigned int need = 0;
+  unsigned int need = 0, mid;
 
   if(!ufds && (size || !fd_count))
     return CURLM_BAD_FUNCTION_ARGUMENT;
@@ -1114,12 +1140,19 @@ CURLMcode curl_multi_waitfds(CURLM *m,
     return CURLM_RECURSIVE_API_CALL;
 
   Curl_waitfds_init(&cwfds, ufds, size);
-  for(e = Curl_llist_head(&multi->process); e; e = Curl_node_next(e)) {
-    struct Curl_easy *data = Curl_node_elem(e);
-    struct easy_pollset ps;
-
-    Curl_multi_getsock(data, &ps, "curl_multi_waitfds");
-    need += Curl_waitfds_add_ps(&cwfds, &ps);
+  if(Curl_uint_bset_first(&multi->process, &mid)) {
+    do {
+      struct Curl_easy *data = Curl_multi_get_handle(multi, mid);
+      struct easy_pollset ps;
+      if(!data) {
+        DEBUGASSERT(0);
+        Curl_uint_bset_remove(&multi->process, mid);
+        continue;
+      }
+      Curl_multi_getsock(data, &ps, "curl_multi_waitfds");
+      need += Curl_waitfds_add_ps(&cwfds, &ps);
+    }
+    while(Curl_uint_bset_next(&multi->process, mid, &mid));
   }
 
   need += Curl_cshutdn_add_waitfds(&multi->cshutdn, multi->admin, &cwfds);
@@ -1167,7 +1200,7 @@ static CURLMcode multi_wait(struct Curl_multi *multi,
   struct curl_pollfds cpfds;
   unsigned int curl_nfds = 0; /* how many pfds are for curl transfers */
   CURLMcode result = CURLM_OK;
-  struct Curl_llist_node *e;
+  unsigned int mid;
 
 #ifdef USE_WINSOCK
   WSANETWORKEVENTS wsa_events;
@@ -1189,15 +1222,22 @@ static CURLMcode multi_wait(struct Curl_multi *multi,
   Curl_pollfds_init(&cpfds, a_few_on_stack, NUM_POLLS_ON_STACK);
 
   /* Add the curl handles to our pollfds first */
-  for(e = Curl_llist_head(&multi->process); e; e = Curl_node_next(e)) {
-    struct Curl_easy *data = Curl_node_elem(e);
-    struct easy_pollset ps;
-
-    Curl_multi_getsock(data, &ps, "multi_wait");
-    if(Curl_pollfds_add_ps(&cpfds, &ps)) {
-      result = CURLM_OUT_OF_MEMORY;
-      goto out;
+  if(Curl_uint_bset_first(&multi->process, &mid)) {
+    do {
+      struct Curl_easy *data = Curl_multi_get_handle(multi, mid);
+      struct easy_pollset ps;
+      if(!data) {
+        DEBUGASSERT(0);
+        Curl_uint_bset_remove(&multi->process, mid);
+        continue;
+      }
+      Curl_multi_getsock(data, &ps, "multi_wait");
+      if(Curl_pollfds_add_ps(&cpfds, &ps)) {
+        result = CURLM_OUT_OF_MEMORY;
+        goto out;
+      }
     }
+    while(Curl_uint_bset_next(&multi->process, mid, &mid));
   }
 
   if(Curl_cshutdn_add_pollfds(&multi->cshutdn, multi->admin, &cpfds)) {
@@ -2174,10 +2214,9 @@ static CURLMcode state_connect(struct Curl_multi *multi,
     /* There was no connection available. We will go to the pending state and
        wait for an available connection. */
     multistate(data, MSTATE_PENDING);
-    /* unlink from process list */
-    Curl_node_remove(&data->multi_queue);
-    /* add handle to pending list */
-    Curl_llist_append(&multi->pending, data, &data->multi_queue);
+    /* move from process to pending set */
+    Curl_uint_bset_remove(&multi->process, data->mid);
+    Curl_uint_bset_add(&multi->pending, data->mid);
     *resultp = CURLE_OK;
     return rc;
   }
@@ -2589,10 +2628,10 @@ statemachine_end:
       }
       multistate(data, MSTATE_MSGSENT);
 
-      /* unlink from the process list */
-      Curl_node_remove(&data->multi_queue);
-      /* add this handle msgsent list */
-      Curl_llist_append(&multi->msgsent, data, &data->multi_queue);
+      /* remove from the other sets, add to msgsent */
+      Curl_uint_bset_remove(&multi->process, data->mid);
+      Curl_uint_bset_remove(&multi->pending, data->mid);
+      Curl_uint_bset_add(&multi->msgsent, data->mid);
       return CURLM_OK;
     }
   } while((rc == CURLM_CALL_MULTI_PERFORM) || multi_ischanged(multi, FALSE));
@@ -2607,10 +2646,8 @@ CURLMcode curl_multi_perform(CURLM *m, int *running_handles)
   CURLMcode returncode = CURLM_OK;
   struct Curl_tree *t = NULL;
   struct curltime now = Curl_now();
-  struct Curl_llist_node *e;
-  struct Curl_llist_node *n = NULL;
   struct Curl_multi *multi = m;
-  bool first = TRUE;
+  unsigned int mid;
   SIGPIPE_VARIABLE(pipe_st);
 
   if(!GOOD_MULTI_HANDLE(multi))
@@ -2620,34 +2657,25 @@ CURLMcode curl_multi_perform(CURLM *m, int *running_handles)
     return CURLM_RECURSIVE_API_CALL;
 
   sigpipe_init(&pipe_st);
-  for(e = Curl_llist_head(&multi->process); e; e = n) {
-    struct Curl_easy *data = Curl_node_elem(e);
-    CURLMcode result;
-    unsigned int num_alive = multi->num_alive;
-    /* Do the loop and only alter the signal ignore state if the next handle
-       has a different NO_SIGNAL state than the previous */
-    if(first) {
-      CURL_TRC_M(data, "multi_perform(running=%u)", multi->num_alive);
-      first = FALSE;
+  if(Curl_uint_bset_first(&multi->process, &mid)) {
+    CURL_TRC_M(multi->admin, "multi_perform(running=%u)", multi->num_alive);
+    do {
+      struct Curl_easy *data = Curl_multi_get_handle(multi, mid);
+      CURLMcode result;
+      if(!data) {
+        DEBUGASSERT(0);
+        Curl_uint_bset_remove(&multi->process, mid);
+        continue;
+      }
+      if(data != multi->admin) {
+        /* admin handle is processed below */
+        sigpipe_apply(data, &pipe_st);
+        result = multi_runsingle(multi, &now, data);
+        if(result)
+          returncode = result;
+      }
     }
-
-    /* the current node might be unlinked in multi_runsingle(), get the next
-       pointer now */
-    n = Curl_node_next(e);
-
-    if(data && data != multi->admin) {
-      /* connection pool handle is processed below */
-      sigpipe_apply(data, &pipe_st);
-      result = multi_runsingle(multi, &now, data);
-      if(result)
-        returncode = result;
-    }
-    if(num_alive != multi->num_alive)
-      /* Since more than one handle can be removed in a single call to
-         multi_runsingle(), we cannot easily continue on the next node when a
-         node has been removed since that node might ALSO have been
-         removed. */
-      n = Curl_llist_head(&multi->process);
+    while(Curl_uint_bset_next(&multi->process, mid, &mid));
   }
 
   sigpipe_apply(multi->admin, &pipe_st);
@@ -2697,17 +2725,20 @@ CURLMcode curl_multi_perform(CURLM *m, int *running_handles)
    the process list */
 static void unlink_all_msgsent_handles(struct Curl_multi *multi)
 {
-  struct Curl_llist_node *e;
-  struct Curl_llist_node *n;
-  for(e = Curl_llist_head(&multi->msgsent); e; e = n) {
-    struct Curl_easy *data = Curl_node_elem(e);
-    n = Curl_node_next(e);
-    if(data) {
-      DEBUGASSERT(data->mstate == MSTATE_MSGSENT);
-      Curl_node_remove(&data->multi_queue);
-      /* put it into the process list */
-      Curl_llist_append(&multi->process, data, &data->multi_queue);
+  unsigned int mid;
+
+  if(Curl_uint_bset_first(&multi->msgsent, &mid)) {
+    do {
+      struct Curl_easy *data = Curl_multi_get_handle(multi, mid);
+
+      /* move it into the process set, if still found */
+      Curl_uint_bset_remove(&multi->msgsent, mid);
+      if(data) {
+        DEBUGASSERT(data->mstate == MSTATE_MSGSENT);
+        Curl_uint_bset_add(&multi->process, mid);
+      }
     }
+    while(Curl_uint_bset_next(&multi->msgsent, mid, &mid));
   }
 }
 
@@ -2715,8 +2746,8 @@ CURLMcode curl_multi_cleanup(CURLM *m)
 {
   struct Curl_multi *multi = m;
   if(GOOD_MULTI_HANDLE(multi)) {
-    struct Curl_llist_node *e;
-    struct Curl_llist_node *n;
+    void *entry;
+    unsigned int mid;
     if(multi->in_callback)
       return CURLM_RECURSIVE_API_CALL;
 
@@ -2726,34 +2757,39 @@ CURLMcode curl_multi_cleanup(CURLM *m)
     process_pending_handles(multi);
 
     /* First remove all remaining easy handles */
-    for(e = Curl_llist_head(&multi->process); e; e = n) {
-      struct Curl_easy *data = Curl_node_elem(e);
+    if(Curl_uint_tbl_first(&multi->xfers, &mid, &entry)) {
+      do {
+        struct Curl_easy *data = entry;
+        if(!GOOD_EASY_HANDLE(data))
+          return CURLM_BAD_HANDLE;
 
-      if(!GOOD_EASY_HANDLE(data))
-        return CURLM_BAD_HANDLE;
+        if(data == multi->admin)
+          continue;
 
-      n = Curl_node_next(e);
-      if(!data->state.done && data->conn)
-        /* if DONE was never called for this handle */
-        (void)multi_done(data, CURLE_OK, TRUE);
-      if(data->dns.hostcachetype == HCACHE_MULTI) {
-        /* clear out the usage of the shared DNS cache */
-        Curl_hostcache_clean(data, data->dns.hostcache);
-        data->dns.hostcache = NULL;
-        data->dns.hostcachetype = HCACHE_NONE;
-      }
+        if(!data->state.done && data->conn)
+          /* if DONE was never called for this handle */
+          (void)multi_done(data, CURLE_OK, TRUE);
+        if(data->dns.hostcachetype == HCACHE_MULTI) {
+          /* clear out the usage of the shared DNS cache */
+          Curl_hostcache_clean(data, data->dns.hostcache);
+          data->dns.hostcache = NULL;
+          data->dns.hostcachetype = HCACHE_NONE;
+        }
 
-      data->multi = NULL; /* clear the association */
-      Curl_uint_tbl_remove(&multi->xfers, data->mid);
-      data->mid = UINT_MAX;
+        data->multi = NULL; /* clear the association */
+        Curl_uint_tbl_remove(&multi->xfers, data->mid);
+        data->mid = UINT_MAX;
 
 #ifdef USE_LIBPSL
-      if(data->psl == &multi->psl)
-        data->psl = NULL;
+        if(data->psl == &multi->psl)
+          data->psl = NULL;
 #endif
-      if(data->state.internal)
-        Curl_close(&data);
+        if(data->state.internal)
+          Curl_close(&data);
+      }
+      while(Curl_uint_tbl_next(&multi->xfers, mid, &mid, &entry));
     }
+
     Curl_cpool_destroy(&multi->cpool);
     Curl_cshutdn_destroy(&multi->cshutdn, multi->admin);
     if(multi->admin) {
@@ -2788,6 +2824,9 @@ CURLMcode curl_multi_cleanup(CURLM *m)
       DEBUGASSERT(0);
     }
 #endif
+    Curl_uint_bset_destroy(&multi->process);
+    Curl_uint_bset_destroy(&multi->pending);
+    Curl_uint_bset_destroy(&multi->msgsent);
     Curl_uint_tbl_destroy(&multi->xfers);
     free(multi);
 
@@ -2974,7 +3013,7 @@ static CURLMcode multi_socket(struct Curl_multi *multi,
 
     if(result != CURLM_BAD_HANDLE) {
       /* Reassess event status of all active transfers */
-      result = Curl_multi_ev_assess_xfer_list(multi, &multi->process);
+      result = Curl_multi_ev_assess_xfer_bset(multi, &multi->process);
     }
     mrc.run_cpool = TRUE;
     goto out;
@@ -3468,11 +3507,9 @@ static void move_pending_to_connect(struct Curl_multi *multi,
 {
   DEBUGASSERT(data->mstate == MSTATE_PENDING);
 
-  /* Remove this node from the pending list */
-  Curl_node_remove(&data->multi_queue);
-
-  /* put it into the process list */
-  Curl_llist_append(&multi->process, data, &data->multi_queue);
+  /* Remove this node from the pending set, add into process set */
+  Curl_uint_bset_remove(&multi->pending, data->mid);
+  Curl_uint_bset_add(&multi->process, data->mid);
 
   multistate(data, MSTATE_CONNECT);
 
@@ -3496,10 +3533,15 @@ static void move_pending_to_connect(struct Curl_multi *multi,
 */
 static void process_pending_handles(struct Curl_multi *multi)
 {
-  struct Curl_llist_node *e = Curl_llist_head(&multi->pending);
-  if(e) {
-    struct Curl_easy *data = Curl_node_elem(e);
-    move_pending_to_connect(multi, data);
+  unsigned int mid;
+  if(Curl_uint_bset_first(&multi->pending, &mid)) {
+    do {
+      struct Curl_easy *data = Curl_multi_get_handle(multi, mid);
+      DEBUGASSERT(data);
+      if(data)
+        move_pending_to_connect(multi, data);
+    }
+    while(Curl_uint_bset_next(&multi->pending, mid, &mid));
   }
 }
 
@@ -3523,15 +3565,20 @@ unsigned int Curl_multi_max_concurrent_streams(struct Curl_multi *multi)
 CURL **curl_multi_get_handles(CURLM *m)
 {
   struct Curl_multi *multi = m;
-  CURL **a = malloc(sizeof(struct Curl_easy *) * (multi->num_easy + 1));
+  void *entry;
+  unsigned int count = Curl_uint_tbl_count(&multi->xfers);
+  CURL **a = malloc(sizeof(struct Curl_easy *) * (count + 1));
   if(a) {
-    unsigned int i = 0;
-    struct Curl_llist_node *e;
-    for(e = Curl_llist_head(&multi->process); e; e = Curl_node_next(e)) {
-      struct Curl_easy *data = Curl_node_elem(e);
-      DEBUGASSERT(i < multi->num_easy);
-      if(!data->state.internal)
-        a[i++] = data;
+    unsigned int i = 0, mid;
+
+    if(Curl_uint_tbl_first(&multi->xfers, &mid, &entry)) {
+      do {
+        struct Curl_easy *data = entry;
+        DEBUGASSERT(i < count);
+        if(!data->state.internal)
+          a[i++] = data;
+      }
+      while(Curl_uint_tbl_next(&multi->xfers, mid, &mid, &entry));
     }
     a[i] = NULL; /* last entry is a NULL */
   }

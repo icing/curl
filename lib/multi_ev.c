@@ -517,16 +517,19 @@ CURLMcode Curl_multi_ev_assess_conn(struct Curl_multi *multi,
   return mev_assess(multi, data, conn);
 }
 
-CURLMcode Curl_multi_ev_assess_xfer_list(struct Curl_multi *multi,
-                                         struct Curl_llist *list)
+CURLMcode Curl_multi_ev_assess_xfer_bset(struct Curl_multi *multi,
+                                         struct uint_bset *set)
 {
-  struct Curl_llist_node *e;
+  unsigned int mid;
   CURLMcode result = CURLM_OK;
 
-  if(multi && multi->socket_cb) {
-    for(e = Curl_llist_head(list); e && !result; e = Curl_node_next(e)) {
-      result = Curl_multi_ev_assess_xfer(multi, Curl_node_elem(e));
+  if(multi && multi->socket_cb && Curl_uint_bset_first(set, &mid)) {
+    do {
+      struct Curl_easy *data = Curl_multi_get_handle(multi, mid);
+      if(data)
+        result = Curl_multi_ev_assess_xfer(multi, data);
     }
+    while(!result && Curl_uint_bset_next(set, mid, &mid));
   }
   return result;
 }

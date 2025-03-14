@@ -1878,7 +1878,6 @@ struct Curl_easy {
   unsigned int mid;
 
   struct connectdata *conn;
-  struct Curl_llist_node multi_queue; /* for multihandle list management */
   struct Curl_llist_node conn_queue; /* list per connectdata */
 
   CURLMstate mstate;  /* the handle's state */
