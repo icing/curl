@@ -299,7 +299,7 @@ struct cf_osslq_ctx {
   BIT(need_send);                    /* QUIC connection needs to send */
 };
 
-static void h3_stream_hash_free(curl_off_t id, void *stream);
+static void h3_stream_hash_free(unsigned int id, void *stream);
 
 static void cf_osslq_ctx_init(struct cf_osslq_ctx *ctx)
 {
@@ -1420,7 +1420,7 @@ struct cf_ossq_recv_ctx {
   CURLcode result;
 };
 
-static bool cf_osslq_iter_recv(curl_off_t mid, void *val, void *user_data)
+static bool cf_osslq_iter_recv(unsigned int mid, void *val, void *user_data)
 {
   struct h3_stream_ctx *stream = val;
   struct cf_ossq_recv_ctx *rctx = user_data;

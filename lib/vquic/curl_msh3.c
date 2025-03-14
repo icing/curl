@@ -131,7 +131,7 @@ struct cf_msh3_ctx {
   BIT(active);
 };
 
-static void h3_stream_hash_free(curl_off_t id, void *stream);
+static void h3_stream_hash_free(unsigned int id, void *stream);
 
 static CURLcode cf_msh3_ctx_init(struct cf_msh3_ctx *ctx,
                                  const struct Curl_addrinfo *ai)

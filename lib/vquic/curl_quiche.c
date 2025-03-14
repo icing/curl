@@ -115,7 +115,7 @@ static void quiche_debug_log(const char *line, void *argp)
 }
 #endif
 
-static void h3_stream_hash_free(curl_off_t id, void *stream);
+static void h3_stream_hash_free(unsigned int id, void *stream);
 
 static void cf_quiche_ctx_init(struct cf_quiche_ctx *ctx)
 {
@@ -581,7 +581,7 @@ struct cf_quich_disp_ctx {
   CURLcode result;
 };
 
-static bool cf_quiche_disp_event(curl_off_t mid, void *val, void *user_data)
+static bool cf_quiche_disp_event(unsigned int mid, void *val, void *user_data)
 {
   struct cf_quich_disp_ctx *dctx = user_data;
   struct stream_ctx *stream = val;
