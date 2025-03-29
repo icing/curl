@@ -113,6 +113,8 @@ class ScoreCard:
 
     def setup_resources(self, server_docs: str,
                         downloads: Optional[List[int]] = None):
+        if downloads is None:
+            downloads = []
         for fsize in downloads:
             label = self.fmt_size(fsize)
             fname = f'score{label}.data'

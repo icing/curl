@@ -191,6 +191,18 @@ extern struct curl_trc_feat Curl_trc_feat_read;
 extern struct curl_trc_feat Curl_trc_feat_write;
 extern struct curl_trc_feat Curl_trc_feat_dns;
 
+#if defined(__GNUC__) || defined(__clang__)
+#define Curl_trc_is_verbose(data) \
+            __builtin_expect(((data) && (data)->set.verbose && \
+             (!(data)->state.feat || \
+             ((data)->state.feat->log_level >= CURL_LOG_LVL_INFO))), 0)
+#define Curl_trc_cf_is_verbose(cf, data) \
+            __builtin_expect((Curl_trc_is_verbose(data) && \
+             (cf) && (cf)->cft->log_level >= CURL_LOG_LVL_INFO), 0)
+#define Curl_trc_ft_is_verbose(data, ft) \
+            __builtin_expect((Curl_trc_is_verbose(data) && \
+             (ft)->log_level >= CURL_LOG_LVL_INFO), 0)
+#else
 #define Curl_trc_is_verbose(data) \
             ((data) && (data)->set.verbose && \
             (!(data)->state.feat || \
@@ -201,6 +213,7 @@ extern struct curl_trc_feat Curl_trc_feat_dns;
 #define Curl_trc_ft_is_verbose(data, ft) \
             (Curl_trc_is_verbose(data) && \
              (ft)->log_level >= CURL_LOG_LVL_INFO)
+#endif /* else __GNUC__ || __clang__ */
 #define CURL_MSTATE_NAME(s)  Curl_trc_mstate_name((int)(s))
 
 #else /* defined(CURL_DISABLE_VERBOSE_STRINGS) */
