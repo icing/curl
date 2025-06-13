@@ -767,8 +767,8 @@ static CURLcode ftp_state_pwd(struct Curl_easy *data,
 {
   CURLcode result;
 #ifdef DEBUGBUILD
-    if(!data->id && getenv("CURL_FTP_PWD_STOP"))
-      return CURLE_OK;
+  if(!data->id && getenv("CURL_FTP_PWD_STOP"))
+    return CURLE_OK;
 #endif
   result = Curl_pp_sendf(data, &ftpc->pp, "%s", "PWD");
   if(!result)
