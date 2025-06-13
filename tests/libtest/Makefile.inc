@@ -49,7 +49,7 @@ LIBTESTPROGS = libauthretry libntlmconnect libprereq                     \
  lib643               lib650 lib651 lib652 lib653 lib654 lib655 lib658   \
  lib659 lib661 lib666 lib667 lib668 \
  lib670                      lib674 lib676 lib677 lib678 lib694 lib695   \
- lib751 \
+ lib751 lib753 \
  lib1156 \
  lib1301 \
  lib1308 \
@@ -179,6 +179,7 @@ lib678_SOURCES = lib678.c $(SUPPORTFILES) $(TESTUTIL) $(WARNLESS) $(MULTIBYTE)
 lib694_SOURCES = lib694.c $(SUPPORTFILES)
 lib695_SOURCES = lib695.c $(SUPPORTFILES)
 lib751_SOURCES = lib751.c $(SUPPORTFILES) $(TESTUTIL) $(WARNLESS)
+lib753_SOURCES = lib753.c $(SUPPORTFILES) $(TESTUTIL) $(TSTTRACE) $(WARNLESS)
 lib1301_SOURCES = lib1301.c $(SUPPORTFILES) $(TESTUTIL)
 lib1308_SOURCES = lib1308.c $(SUPPORTFILES)
 lib1485_SOURCES = lib1485.c $(SUPPORTFILES) $(TESTUTIL) $(WARNLESS)
