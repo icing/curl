@@ -103,6 +103,7 @@ int Curl_thread_join(curl_thread_t *hnd)
 int Curl_thread_cancel(curl_thread_t *hnd)
 {
   (void)hnd;
+#if 0
 #ifdef PTHREAD_CANCEL_ENABLE
 #if defined(__has_feature)
 /* do not use this in -fsanitize=thread builds.
@@ -110,6 +111,7 @@ int Curl_thread_cancel(curl_thread_t *hnd)
 #if !__has_feature(thread_sanitizer)
   if(*hnd != curl_thread_t_null)
     return pthread_cancel(**hnd);
+#endif
 #endif
 #endif
 #endif
