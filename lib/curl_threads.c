@@ -104,9 +104,14 @@ int Curl_thread_cancel(curl_thread_t *hnd)
 {
   (void)hnd;
 #ifdef PTHREAD_CANCEL_ENABLE
-  if(*hnd != curl_thread_t_null) {
+#if defined(__has_feature)
+/* do not use this in -fsanitize=thread builds.
+ * clang sanitizer freaks out when threads are cancelled */
+#if !__has_feature(thread_sanitizer)
+  if(*hnd != curl_thread_t_null)
     return pthread_cancel(**hnd);
-  }
+#endif
+#endif
 #endif
   return 0;
 }
