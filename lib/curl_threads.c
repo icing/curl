@@ -103,17 +103,19 @@ int Curl_thread_join(curl_thread_t *hnd)
 int Curl_thread_cancel(curl_thread_t *hnd)
 {
   (void)hnd;
-#if 0
-#ifdef PTHREAD_CANCEL_ENABLE
-#if defined(__has_feature)
-/* do not use this in -fsanitize=thread builds.
- * clang sanitizer freaks out when threads are cancelled */
-#if !__has_feature(thread_sanitizer)
   if(*hnd != curl_thread_t_null)
+/* do not use pthread_cancel if:
+ * - pthread_cancel seems to be absent
+ * - on FreeBSD, as we see hangers in CI testing
+ * - this is a -fsanitize=thread build
+ *   (clang sanitizer reports false positive when functions to not return)
+ */
+#if defined(PTHREAD_CANCEL_ENABLE) && \
+    !defined(__FreeBSD__) && \
+    (!defined(__has_feature) || !__has_feature(thread_sanitizer))
     return pthread_cancel(**hnd);
-#endif
-#endif
-#endif
+#else
+    return 1; /* not supported */
 #endif
   return 0;
 }
