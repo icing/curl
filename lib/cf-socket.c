@@ -1351,7 +1351,7 @@ static CURLcode cf_tcp_connect(struct Curl_cfilter *cf,
       return CURLE_OK;
     }
   }
-  else if((ctx->addr.family != AF_UNIX) && (rc & CURL_CSELECT_ERR) &&
+  else if((ctx->addr.family == AF_UNIX) && (rc & CURL_CSELECT_ERR) &&
           (rc & CURL_CSELECT_OUT)) {
     CURL_TRC_CF(data, cf, "not accepted by server yet");
     result = CURLE_OK;
