@@ -192,6 +192,8 @@ int Curl_socket_check(curl_socket_t readfd0, /* two sockets to read from */
       r |= CURL_CSELECT_OUT;
     if(pfd[num].revents & (POLLERR|POLLHUP|POLLPRI|POLLNVAL))
       r |= CURL_CSELECT_ERR;
+    fprintf(stderr, "Curl_socket_check(write=%d) -> revents=%x -> r=%x\n",
+            (int)writefd, pfd[num].revents, r);
   }
 
   return r;
