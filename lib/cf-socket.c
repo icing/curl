@@ -904,8 +904,8 @@ static CURLcode socket_connect_result(struct Curl_easy *data,
 #else
     {
       char buffer[STRERROR_LEN];
-      infof(data, "Immediate connect fail for %s: %s",
-            ipaddress, Curl_strerror(error, buffer, sizeof(buffer)));
+      infof(data, "Immediate connect fail for %s: %s (%d)",
+            ipaddress, Curl_strerror(error, buffer, sizeof(buffer)), error);
     }
 #endif
     data->state.os_errno = error;
@@ -1312,9 +1312,11 @@ static CURLcode cf_tcp_connect(struct Curl_cfilter *cf,
     /* Connect TCP socket */
     rc = do_connect(cf, data, cf->conn->bits.tcp_fastopen);
     error = SOCKERRNO;
+    CURL_TRC_CF(data, cf, "do_connect() -> %d, errno=%d", rc, error);
     set_local_ip(cf, data);
-    CURL_TRC_CF(data, cf, "local address %s port %d...",
-                ctx->ip.local_ip, ctx->ip.local_port);
+    if(ctx->addr.family != AF_UNIX)
+      CURL_TRC_CF(data, cf, "local address %s port %d...",
+                  ctx->ip.local_ip, ctx->ip.local_port);
     if(-1 == rc) {
       result = socket_connect_result(data, ctx->ip.remote_ip, error);
       goto out;

@@ -27,6 +27,7 @@
 import logging
 import os
 import socket
+import time
 from threading import Thread
 from typing import Generator
 
@@ -40,17 +41,19 @@ log = logging.getLogger(__name__)
 
 class UDSFaker:
 
-    def __init__(self, path):
+    def __init__(self, path, wait_sec=0):
         self._uds_path = path
         self._done = False
         self._socket = None
         self._thread = None
+        self._wait_sec = wait_sec
 
     @property
     def path(self):
         return self._uds_path
 
     def start(self):
+        self._done = False
         def process(self):
             self._socket.listen(1)
             self._process()
@@ -69,12 +72,19 @@ class UDSFaker:
         self._done = True
         self._socket.close()
 
+    def restart(self, wait_sec=0):
+        self.stop()
+        self._wait_sec = wait_sec
+        self.start()
+
     def _process(self):
         while self._done is False:
             try:
                 c, client_address = self._socket.accept()
                 try:
-                    c.recv(16)
+                    c.recv(1024)
+                    if self._wait_sec > 0:
+                        time.sleep(self._wait_sec)
                     c.sendall("""HTTP/1.1 200 Ok
 Server: UdsFaker
 Content-Type: application/json
@@ -83,7 +93,6 @@ Content-Length: 19
 { "host": "faked" }""".encode())
                 finally:
                     c.close()
-
             except ConnectionAbortedError:
                 self._done = True
             except OSError:
@@ -95,7 +104,7 @@ class TestUnix:
     @pytest.fixture(scope="class")
     def uds_faker(self, env: Env) -> Generator[UDSFaker, None, None]:
         uds_path = os.path.join(env.gen_dir, 'uds_11.sock')
-        faker = UDSFaker(path=uds_path)
+        faker = UDSFaker(path=uds_path, wait_sec=0)
         faker.start()
         yield faker
         faker.stop()
@@ -112,7 +121,7 @@ class TestUnix:
 
     # download https: via Unix socket
     @pytest.mark.skipif(condition=not Env.have_ssl_curl(), reason="curl without SSL")
-    def test_11_02_unix_connect_http(self, env: Env, httpd, uds_faker):
+    def test_11_02_unix_connect_https(self, env: Env, httpd, uds_faker):
         curl = CurlClient(env=env)
         url = f'https://{env.domain1}:{env.https_port}/data.json'
         r = curl.http_download(urls=[url], with_stats=True,
@@ -132,3 +141,23 @@ class TestUnix:
                                  '--unix-socket', uds_faker.path,
                                ])
         r.check_response(exitcode=96, http_status=None)
+
+    def test_11_04_unix_connect_block(self, env: Env, httpd, uds_faker):
+        uds_faker.restart(wait_sec=5)
+        run_env = os.environ.copy()
+        run_env['CURL_FORBID_REUSE'] = '1'
+        curl = CurlClient(env=env, run_env=run_env)
+        url = f'http://xxx.invalid/data.json'
+        r = curl.http_download(urls=[url, url, url, url], with_stats=True,
+                               extra_args=[
+                                 '--unix-socket', uds_faker.path,
+                                 '--unix-socket', uds_faker.path,
+                                 '--unix-socket', uds_faker.path,
+                                 '--unix-socket', uds_faker.path,
+                                 '--connect-timeout', '1',
+                                 '--max-time', '10',
+                                 '-Z',
+                               ])
+        r.check_exit_code(0)
+        r.check_response(count=4, http_status=200)
+
