@@ -1319,6 +1319,7 @@ static CURLcode cf_tcp_connect(struct Curl_cfilter *cf,
                   ctx->ip.local_ip, ctx->ip.local_port);
     if(-1 == rc) {
       result = socket_connect_result(data, ctx->ip.remote_ip, error);
+      CURL_TRC_CF(data, cf, "socket_connect_result(%d) -> %d", error, result);
       goto out;
     }
   }
@@ -1332,6 +1333,8 @@ static CURLcode cf_tcp_connect(struct Curl_cfilter *cf,
 #endif
   /* check socket for connect */
   rc = SOCKET_WRITABLE(ctx->sock, 0);
+  CURL_TRC_CF(data, cf, "SOCKET_WRITABLE(%" FMT_SOCKET_T ") -> %x",
+              ctx->sock, rc);
 
   if(rc == 0) { /* no connection yet */
     CURL_TRC_CF(data, cf, "not connected yet");
@@ -1370,6 +1373,8 @@ out:
 #endif
     }
     if(ctx->sock != CURL_SOCKET_BAD) {
+      CURL_TRC_CF(data, cf, "connect failed, closing %" FMT_SOCKET_T,
+                  ctx->sock);
       socket_close(data, cf->conn, TRUE, ctx->sock);
       ctx->sock = CURL_SOCKET_BAD;
     }
