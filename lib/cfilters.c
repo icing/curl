@@ -872,6 +872,18 @@ CURLcode Curl_conn_cf_get_ip_info(struct Curl_cfilter *cf,
   return result;
 }
 
+struct Curl_cfilter *Curl_conn_get_first_cf(struct Curl_easy *data,
+                                            int8_t sockindex,
+                                            const struct Curl_cftype *cft)
+{
+  struct Curl_cfilter *cf;
+  for(cf = data->conn->cfilter[sockindex]; cf; cf = cf->next) {
+    if(cf->cft == cft)
+      return cf;
+  }
+  return NULL;
+}
+
 curl_socket_t Curl_conn_get_first_socket(struct Curl_easy *data)
 {
   struct Curl_cfilter *cf;

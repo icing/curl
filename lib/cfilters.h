@@ -456,6 +456,11 @@ bool Curl_conn_needs_flush(struct Curl_easy *data, int8_t sockindex);
  */
 CURLcode Curl_conn_flush(struct Curl_easy *data, int8_t sockindex);
 
+/* Get the first filter of given type at the filter chain `sockindex`
+ * or NULL if there is none. */
+struct Curl_cfilter *Curl_conn_get_first_cf(struct Curl_easy *data,
+                                            int8_t sockindex,
+                                            const struct Curl_cftype *cft);
 /**
  * Return the socket used on data's connection for FIRSTSOCKET,
  * querying filters if the whole chain has not connected yet.

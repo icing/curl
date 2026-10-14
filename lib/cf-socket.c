@@ -1733,7 +1733,8 @@ static CURLcode cf_socket_recv(struct Curl_cfilter *cf, struct Curl_easy *data,
     }
   }
 
-  CURL_TRC_CF(data, cf, "recv(len=%zu) -> %d, %zu", len, (int)result, *pnread);
+  CURL_TRC_CF(data, cf, "recv(len=%zu, fd=%" FMT_SOCKET_T ") -> %d, %zu",
+              len, ctx->sock, (int)result, *pnread);
   if(!result && !ctx->got_first_byte) {
     ctx->first_byte_at = *Curl_pgrs_now(data);
     ctx->got_first_byte = TRUE;

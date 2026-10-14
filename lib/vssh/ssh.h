@@ -25,11 +25,12 @@
  ***************************************************************************/
 #include "curl_setup.h"
 #include "urldata.h"
+#include "cfilters.h"
+
+#ifdef USE_SSH
 
 extern const struct Curl_protocol Curl_protocol_sftp;
 extern const struct Curl_protocol Curl_protocol_scp;
-
-#ifdef USE_SSH
 
 #ifdef USE_LIBSSH2
 #include <libssh2.h>
@@ -45,6 +46,10 @@ extern const struct Curl_protocol Curl_protocol_scp;
 #define CURL_META_SSH_EASY   "meta:proto:ssh:easy"
 /* meta key for storing protocol meta at connection */
 #define CURL_META_SSH_CONN   "meta:proto:ssh:conn"
+
+#ifdef USE_LIBSSH2
+extern struct Curl_cftype Curl_cft_ssh2;
+#endif
 
 /****************************************************************************
  * SSH unique setup
@@ -201,6 +206,7 @@ struct ssh_conn {
   LIBSSH2_CHANNEL *ssh_channel; /* Secure Shell channel handle */
   LIBSSH2_SFTP *sftp_session;   /* SFTP handle */
   LIBSSH2_SFTP_HANDLE *sftp_handle;
+  struct cf_call_data call_data;
 
 #ifndef CURL_DISABLE_PROXY
   /* for HTTPS proxy storage */
@@ -216,6 +222,11 @@ struct ssh_conn {
   BIT(authed);                /* the connection has been authenticated fine */
   BIT(acceptfail);            /* used by the SFTP_QUOTE (continue if
                                  quote command fails) */
+#ifdef USE_LIBSSH2
+  BIT(pre_do_done);
+  BIT(do_started);
+  BIT(shutdown_started);
+#endif
 };
 
 #ifdef USE_LIBSSH

@@ -44,6 +44,7 @@
 #include "vdns/cf-dns.h"
 #include "vtls/vtls.h"
 #include "vquic/vquic.h"
+#include "vssh/ssh.h"
 #include "curlx/strcopy.h"
 
 static void trc_write(struct Curl_easy *data, curl_infotype type,
@@ -601,6 +602,9 @@ static struct trc_cft_def trc_cfts[] = {
 #endif
 #ifndef CURL_DISABLE_HTTP
   { &Curl_cft_http_connect,   TRC_CT_PROTOCOL },
+#endif
+#ifdef USE_LIBSSH2
+  { &Curl_cft_ssh2,           TRC_CT_PROTOCOL },
 #endif
 };
 
